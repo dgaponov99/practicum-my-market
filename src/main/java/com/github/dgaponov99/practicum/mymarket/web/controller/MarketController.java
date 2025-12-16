@@ -2,10 +2,9 @@ package com.github.dgaponov99.practicum.mymarket.web.controller;
 
 import com.github.dgaponov99.practicum.mymarket.percistence.ItemsSortBy;
 import com.github.dgaponov99.practicum.mymarket.web.CartAction;
-import com.github.dgaponov99.practicum.mymarket.web.adapter.ItemAdapter;
-import com.github.dgaponov99.practicum.mymarket.web.adapter.OrderAdapter;
-import com.github.dgaponov99.practicum.mymarket.web.adapter.PagingAdapter;
+import com.github.dgaponov99.practicum.mymarket.web.service.MarketViewService;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.ListUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -18,11 +17,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import java.util.ArrayList;
 import java.util.Set;
 
 @Controller
+@RequiredArgsConstructor
 public class MarketController {
+
+    private final MarketViewService marketViewService;
 
     @Value("${items.partition.size:3}")
     private int itemsPartitionSize;
@@ -33,11 +34,9 @@ public class MarketController {
                          @RequestParam(defaultValue = "1") int pageNumber,
                          @RequestParam(defaultValue = "5") int pageSize,
                          Model model) {
-
-        var items = new ArrayList<ItemAdapter>();
-        var paging = new PagingAdapter(null);
-        model.addAttribute("items", ListUtils.partition(items, itemsPartitionSize));
-        model.addAttribute("paging", paging);
+        var itemsView = marketViewService.search(search, pageNumber, pageSize, sort);
+        model.addAttribute("items", ListUtils.partition(itemsView.getItems(), itemsPartitionSize));
+        model.addAttribute("paging", itemsView.getPaging());
         model.addAttribute("search", search);
         model.addAttribute("sort", sort);
 
@@ -49,13 +48,13 @@ public class MarketController {
                                  @RequestParam CartAction action,
                                  HttpServletRequest request,
                                  RedirectAttributes redirectAttributes) {
-
-        return redirect("/items", request, redirectAttributes, "id", "actions");
+        marketViewService.cartAction(id, action);
+        return redirect("/items", request, redirectAttributes, "id", "action");
     }
 
-    @GetMapping
+    @GetMapping("/items/{id}")
     public String item(@PathVariable long id, Model model) {
-        var item = new ItemAdapter();
+        var item = marketViewService.getItem(id);
         model.addAttribute("item", item);
         return "item";
     }
@@ -65,16 +64,15 @@ public class MarketController {
                        @RequestParam CartAction action,
                        HttpServletRequest request,
                        RedirectAttributes redirectAttributes) {
-
+        marketViewService.cartAction(id, action);
         redirectAttributes.addAttribute("id", id);
         return redirect("/items/{id}", request, redirectAttributes, "action");
     }
 
     @GetMapping("/cart/items")
     public String cart(Model model) {
-
-        var items = new ArrayList<ItemAdapter>();
-        var total = items.stream().mapToLong(item -> item.getPrice() * item.getCount()).sum();
+        var items = marketViewService.getCartItems();
+        var total = marketViewService.calculateTotalPrice(items);
         model.addAttribute("items", items);
         model.addAttribute("total", total);
 
@@ -86,12 +84,13 @@ public class MarketController {
                              @RequestParam CartAction action,
                              HttpServletRequest request,
                              RedirectAttributes redirectAttributes) {
-        return redirect("/items", request, redirectAttributes, "id", "action");
+        marketViewService.cartAction(id, action);
+        return redirect("/cart/items", request, redirectAttributes, "id", "action");
     }
 
     @GetMapping("/orders")
     public String orders(Model model) {
-        var orders = new ArrayList<OrderAdapter>();
+        var orders = marketViewService.getOrders();
         model.addAttribute("orders", orders);
 
         return "orders";
@@ -101,22 +100,23 @@ public class MarketController {
     public String order(@PathVariable long id,
                         @RequestParam(defaultValue = "false") boolean newOrder,
                         Model model) {
-        var order = new OrderAdapter();
+        var order = marketViewService.getOrder(id);
         model.addAttribute("order", order);
+        model.addAttribute("newOrder", newOrder);
 
         return "order";
     }
 
     @PostMapping("/buy")
     public String buy(HttpServletRequest request, RedirectAttributes redirectAttributes) {
-        var createdOrderId = 0L;
+        var createdOrderId = marketViewService.buy();
         redirectAttributes.addAttribute("id", createdOrderId);
         return redirect("/orders/{id}?newOrder=true", request, redirectAttributes);
     }
 
     @GetMapping("/images/{id}")
     public ResponseEntity<Resource> image(@PathVariable long id) {
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.of(marketViewService.getItemImageResource(id));
     }
 
     private String redirect(String redirectUrl, HttpServletRequest request, RedirectAttributes redirectAttributes, String... excludeParams) {
