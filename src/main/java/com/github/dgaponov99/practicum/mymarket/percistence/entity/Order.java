@@ -27,7 +27,7 @@ public class Order {
     @Column(nullable = false)
     private Instant orderDate;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @JoinColumn(name = "order_id", referencedColumnName = "order_id")
     private List<OrderItem> orderItems = new ArrayList<>();
 

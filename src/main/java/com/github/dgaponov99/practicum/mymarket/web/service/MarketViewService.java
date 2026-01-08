@@ -22,9 +22,10 @@ import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -36,31 +37,30 @@ public class MarketViewService {
     private final ItemImageService itemImageService;
 
     @Transactional(readOnly = true)
-    public ItemView getItem(long id) {
+    public Mono<ItemView> getItem(long id) {
         var item = itemService.findById(id).orElseThrow(() -> new ItemNotFoundException(id));
         var itemCartCount = cartService.countByItemId(id);
-        return toItemView(item, itemCartCount);
+        return Mono.just(toItemView(item, itemCartCount));
     }
 
-    public Optional<Resource> getItemImageResource(long itemId) {
+    public Mono<Resource> getItemImageResource(long itemId) {
         try {
-            return Optional.of(new InputStreamResource(itemImageService.getImage(itemId)));
+            return Mono.just(new InputStreamResource(itemImageService.getImage(itemId)));
         } catch (ImageItemNotFoundException e) {
-            return Optional.empty();
+            return Mono.empty();
         }
     }
 
     @Transactional(readOnly = true)
-    public List<ItemView> getCartItems() {
-        return cartService.getCartItems().stream().map(cartItem -> {
-                    var item = itemService.findById(cartItem.getItemId()).orElseThrow(() -> new ItemNotFoundException(cartItem.getItemId()));
-                    return toItemView(item, cartItem.getCount());
-                })
-                .toList();
+    public Flux<ItemView> getCartItems() {
+        return Flux.fromStream(cartService.getCartItems().stream().map(cartItem -> {
+            var item = itemService.findById(cartItem.getItemId()).orElseThrow(() -> new ItemNotFoundException(cartItem.getItemId()));
+            return toItemView(item, cartItem.getCount());
+        }));
     }
 
     @Transactional(readOnly = true)
-    public ItemsPageView search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
+    public Mono<ItemsPageView> search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
         var page = itemService.search(searchText, pageNumber - 1, pageSize, sortBy);
         var paging = toPagingView(page);
         var itemViewList = page.getContent().stream()
@@ -68,35 +68,37 @@ public class MarketViewService {
                     var itemCartCount = cartService.countByItemId(item.getId());
                     return toItemView(item, itemCartCount);
                 }).toList();
-        return new ItemsPageView(itemViewList, paging);
+        return Mono.just(new ItemsPageView(itemViewList, paging));
     }
 
     @Transactional(readOnly = true)
-    public OrderView getOrder(long id) {
+    public Mono<OrderView> getOrder(long id) {
         var order = orderService.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
-        return toOrderView(order);
+        return Mono.just(toOrderView(order));
     }
 
     @Transactional(readOnly = true)
-    public List<OrderView> getOrders() {
-        return orderService.findAll().stream().map(this::toOrderView).toList();
+    public Flux<OrderView> getOrders() {
+        return Flux.fromStream(orderService.findAll().stream().map(this::toOrderView));
     }
 
-    public void cartAction(long itemId, CartAction action) {
-        switch (action) {
-            case PLUS -> cartService.incrementItem(itemId);
-            case MINUS -> {
-                try {
-                    cartService.decrementItem(itemId);
-                } catch (CartItemNotFoundException ignore) {
+    public Mono<Void> cartAction(long itemId, CartAction action) {
+        return Mono.fromRunnable(() -> {
+            switch (action) {
+                case PLUS -> cartService.incrementItem(itemId);
+                case MINUS -> {
+                    try {
+                        cartService.decrementItem(itemId);
+                    } catch (CartItemNotFoundException ignore) {
+                    }
                 }
             }
-        }
+        });
     }
 
     @Transactional
-    public long buy() {
-        return orderService.create().getId();
+    public Mono<Long> buy() {
+        return Mono.just(orderService.create().getId());
     }
 
     public long calculateTotalPrice(List<ItemView> items) {

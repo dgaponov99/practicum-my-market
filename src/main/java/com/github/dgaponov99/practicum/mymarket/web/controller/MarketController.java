@@ -35,89 +35,92 @@ public class MarketController {
                                   @RequestParam(defaultValue = "NO") ItemsSortBy sort,
                                   @RequestParam(defaultValue = "1") int pageNumber,
                                   @RequestParam(defaultValue = "5") int pageSize) {
-        var itemsView = marketViewService.search(search, pageNumber, pageSize, sort);
-        return Mono.just(Rendering.view("items")
-                .modelAttribute("items", ListUtils.partition(itemsView.getItems(), itemsPartitionSize))
-                .modelAttribute("paging", itemsView.getPaging())
-                .modelAttribute("search", search)
-                .modelAttribute("sort", sort)
-                .build());
+        return marketViewService.search(search, pageNumber, pageSize, sort)
+                .map(itemsView -> Rendering.view("items")
+                        .modelAttribute("items", ListUtils.partition(itemsView.getItems(), itemsPartitionSize))
+                        .modelAttribute("paging", itemsView.getPaging())
+                        .modelAttribute("search", search)
+                        .modelAttribute("sort", sort)
+                        .build()
+                );
     }
 
     @PostMapping("/items")
     public Mono<Rendering> itemCartAction(ServerWebExchange exchange) {
         return exchange.getFormData()
-                .flatMap(formData -> {
-                    marketViewService.cartAction(Long.parseLong(formData.getFirst("id")), CartAction.valueOf(formData.getFirst("action")));
-                    return Mono.just(redirect("/items", exchange.getRequest().getQueryParams(), formData, "id", "action"));
-                });
+                .flatMap(formData -> marketViewService.cartAction(
+                                Long.parseLong(formData.getFirst("id")),
+                                CartAction.valueOf(formData.getFirst("action"))
+                        )
+                        .thenReturn(redirect("/items", exchange.getRequest().getQueryParams(), formData, "id", "action")));
     }
 
     @GetMapping("/items/{id}")
     public Mono<Rendering> item(@PathVariable long id) {
-        var item = marketViewService.getItem(id);
-        return Mono.just(Rendering.view("item")
-                .modelAttribute("item", item)
-                .build());
+        return marketViewService.getItem(id)
+                .map(item -> Rendering.view("item")
+                        .modelAttribute("item", item)
+                        .build()
+                );
     }
 
     @PostMapping("/items/{id}")
     public Mono<String> item(@PathVariable long id,
                              ServerWebExchange exchange) {
-        return exchange.getFormData().flatMap(formData -> {
-            marketViewService.cartAction(id, CartAction.valueOf(formData.getFirst("action")));
-            return Mono.just("redirect:/items/%d".formatted(id));
-        });
+        return exchange.getFormData()
+                .flatMap(formData -> marketViewService.cartAction(id,
+                                CartAction.valueOf(formData.getFirst("action")))
+                        .thenReturn("redirect:/items/%d".formatted(id)));
     }
 
     @GetMapping("/cart/items")
     public Mono<Rendering> cart() {
-        var items = marketViewService.getCartItems();
-        var total = marketViewService.calculateTotalPrice(items);
-
-        return Mono.just(Rendering.view("cart")
-                .modelAttribute("items", items)
-                .modelAttribute("total", total)
-                .build());
+        return marketViewService.getCartItems()
+                .collectList()
+                .map(items -> Rendering.view("cart")
+                        .modelAttribute("items", items)
+                        .modelAttribute("total", marketViewService.calculateTotalPrice(items))
+                        .build());
     }
 
     @PostMapping("/cart/items")
     public Mono<String> cartAction(ServerWebExchange exchange) {
-        return exchange.getFormData().flatMap(formData -> {
-            marketViewService.cartAction(Long.parseLong(formData.getFirst("id")), CartAction.valueOf(formData.getFirst("action")));
-            return Mono.just("redirect:/cart/items");
-        });
+        return exchange.getFormData()
+                .flatMap(formData -> marketViewService.cartAction(
+                                Long.parseLong(formData.getFirst("id")),
+                                CartAction.valueOf(formData.getFirst("action"))
+                        )
+                        .thenReturn("redirect:/cart/items"));
     }
 
     @GetMapping("/orders")
     public Mono<Rendering> orders() {
-        var orders = marketViewService.getOrders();
-
         return Mono.just(Rendering.view("orders")
-                .modelAttribute("orders", orders)
+                .modelAttribute("orders", marketViewService.getOrders())
                 .build());
     }
 
     @GetMapping("/orders/{id}")
     public Mono<Rendering> order(@PathVariable long id,
                                  @RequestParam(defaultValue = "false") boolean newOrder) {
-        var order = marketViewService.getOrder(id);
-
-        return Mono.just(Rendering.view("order")
-                .modelAttribute("order", order)
-                .modelAttribute("newOrder", newOrder)
-                .build());
+        return marketViewService.getOrder(id)
+                .map(order -> Rendering.view("order")
+                        .modelAttribute("order", order)
+                        .modelAttribute("newOrder", newOrder)
+                        .build()
+                );
     }
 
     @PostMapping("/buy")
-    public Mono<String> buy(ServerWebExchange exchange) {
-        var createdOrderId = marketViewService.buy();
-        return Mono.just("redirect:/orders/%d?newOrder=true".formatted(createdOrderId));
+    public Mono<String> buy() {
+        return marketViewService.buy().map("redirect:/orders/%d?newOrder=true"::formatted);
     }
 
     @GetMapping("/images/{id}")
     public Mono<ResponseEntity<Resource>> image(@PathVariable long id) {
-        return Mono.just(ResponseEntity.of(marketViewService.getItemImageResource(id)));
+        return marketViewService.getItemImageResource(id)
+                .singleOptional()
+                .map(ResponseEntity::of);
     }
 
     private Rendering redirect(String redirectUrl, MultiValueMap<String, String> queryParams, MultiValueMap<String, String> formData, String... excludeParams) {

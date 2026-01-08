@@ -22,7 +22,7 @@ public class OrderItem {
     private Order order;
 
     @MapsId("itemId")
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "item_id", referencedColumnName = "item_id")
     private Item item;
 
