@@ -1,12 +1,12 @@
 package com.github.dgaponov99.practicum.mymarket.web.controller;
 
+import com.github.dgaponov99.practicum.mymarket.config.MarketViewProperties;
 import com.github.dgaponov99.practicum.mymarket.exception.ImageItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.percistence.ItemsSortBy;
 import com.github.dgaponov99.practicum.mymarket.web.CartAction;
 import com.github.dgaponov99.practicum.mymarket.web.service.MarketViewService;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.ListUtils;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -32,9 +32,7 @@ import java.util.Set;
 public class MarketController {
 
     private final MarketViewService marketViewService;
-
-    @Value("${items.partition.size:3}")
-    private int itemsPartitionSize;
+    private final MarketViewProperties marketViewProperties;
 
     @GetMapping({"/", "/items"})
     public Mono<Rendering> search(@RequestParam(required = false) String search,
@@ -43,7 +41,7 @@ public class MarketController {
                                   @RequestParam(defaultValue = "5") int pageSize) {
         return marketViewService.search(search, pageNumber, pageSize, sort)
                 .map(itemsView -> Rendering.view("items")
-                        .modelAttribute("items", ListUtils.partition(itemsView.getItems(), itemsPartitionSize))
+                        .modelAttribute("items", ListUtils.partition(itemsView.getItems(), marketViewProperties.getItemsPartitionSize()))
                         .modelAttribute("paging", itemsView.getPaging())
                         .modelAttribute("search", search)
                         .modelAttribute("sort", sort)

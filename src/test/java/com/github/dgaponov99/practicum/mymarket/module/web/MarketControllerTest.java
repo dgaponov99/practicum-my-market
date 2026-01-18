@@ -1,5 +1,6 @@
 package com.github.dgaponov99.practicum.mymarket.module.web;
 
+import com.github.dgaponov99.practicum.mymarket.config.MarketViewProperties;
 import com.github.dgaponov99.practicum.mymarket.exception.CartItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.percistence.ItemsSortBy;
 import com.github.dgaponov99.practicum.mymarket.percistence.entity.CartItem;
@@ -35,7 +36,7 @@ import static org.springframework.web.reactive.function.BodyInserters.fromFormDa
 
 @Slf4j
 @WebFluxTest(controllers = MarketController.class)
-@Import(MarketViewService.class)
+@Import({MarketViewService.class, MarketViewProperties.class})
 public class MarketControllerTest {
 
     @Autowired

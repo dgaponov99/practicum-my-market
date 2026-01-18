@@ -1,7 +1,8 @@
 package com.github.dgaponov99.practicum.mymarket.service;
 
+import com.github.dgaponov99.practicum.mymarket.config.ImageStoreProperties;
 import com.github.dgaponov99.practicum.mymarket.exception.ItemNotFoundException;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -12,22 +13,20 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 @Service
+@RequiredArgsConstructor
 public class ItemImageServiceImpl implements ItemImageService {
 
-    @Value("${item.image.directory:images}")
-    private String storeDirectoryPath;
-    @Value("${item.image.buffer.size:4096}")
-    private int bufferChunkSize;
+    private final ImageStoreProperties imageStoreProperties;
 
     public Flux<DataBuffer> getImage(long itemId, DataBufferFactory dataBufferFactory) {
         return DataBufferUtils.read(getImagePath(itemId),
                 dataBufferFactory,
-                bufferChunkSize
+                imageStoreProperties.getBufferChunkSize()
         ).onErrorMap(e -> new ItemNotFoundException(itemId));
     }
 
     protected Path getImagePath(long itemId) {
-        return Paths.get(storeDirectoryPath, "%d.png".formatted(itemId));
+        return Paths.get(imageStoreProperties.getStoreDirectoryPath(), "%d.png".formatted(itemId));
     }
 
 }
