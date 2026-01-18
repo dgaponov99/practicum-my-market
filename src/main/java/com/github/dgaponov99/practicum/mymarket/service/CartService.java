@@ -7,9 +7,8 @@ import com.github.dgaponov99.practicum.mymarket.percistence.repository.CartItemR
 import com.github.dgaponov99.practicum.mymarket.percistence.repository.ItemRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Service
 @RequiredArgsConstructor
@@ -18,37 +17,43 @@ public class CartService {
     private final CartItemRepository cartItemRepository;
     private final ItemRepository itemRepository;
 
-    @Transactional(readOnly = true)
-    public int countByItemId(long itemId) {
-        return cartItemRepository.findById(itemId).map(CartItem::getCount).orElse(0);
+    public Mono<Integer> countByItemId(long itemId) {
+        return cartItemRepository.findById(itemId)
+                .map(CartItem::getCount)
+                .switchIfEmpty(Mono.just(0));
     }
 
-    @Transactional(readOnly = true)
-    public List<CartItem> getCartItems() {
+    public Flux<CartItem> getCartItems() {
         return cartItemRepository.findAll();
     }
 
-    @Transactional
-    public void incrementItem(long itemId) {
-        var cartItem = cartItemRepository.findById(itemId).orElseGet(() -> {
-            itemRepository.findById(itemId).orElseThrow(() -> new ItemNotFoundException(itemId));
-            var newCartItem = new CartItem();
-            newCartItem.setItemId(itemId);
-            return newCartItem;
-        });
-        cartItem.setCount(cartItem.getCount() + 1);
-        cartItemRepository.save(cartItem);
+    public Mono<Void> incrementItem(long itemId) {
+        return cartItemRepository.findById(itemId)
+                .switchIfEmpty(itemRepository.findById(itemId)
+                        .switchIfEmpty(Mono.error(new ItemNotFoundException(itemId)))
+                        .map(item -> new CartItem(item.getId(), 0, true))
+                ).map(cartItem -> {
+                    cartItem.setCount(cartItem.getCount() + 1);
+                    return cartItem;
+                })
+                .flatMap(cartItemRepository::save)
+                .then();
     }
 
-    @Transactional
-    public void decrementItem(long itemId) {
-        var cartItem = cartItemRepository.findById(itemId).orElseThrow(() -> new CartItemNotFoundException(itemId));
-        cartItem.setCount(cartItem.getCount() - 1);
-        if (cartItem.getCount() <= 0) {
-            cartItemRepository.deleteById(itemId);
-        } else {
-            cartItemRepository.save(cartItem);
-        }
+    public Mono<Void> decrementItem(long itemId) {
+        return cartItemRepository.findById(itemId)
+                .switchIfEmpty(Mono.error(new CartItemNotFoundException(itemId)))
+                .map(cartItem -> {
+                    cartItem.setCount(cartItem.getCount() - 1);
+                    return cartItem;
+                })
+                .flatMap(cartItem -> {
+                    if (cartItem.getCount() <= 0) {
+                        return cartItemRepository.deleteById(itemId);
+                    } else {
+                        return cartItemRepository.save(cartItem).then();
+                    }
+                });
     }
 
 }

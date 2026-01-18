@@ -1,9 +1,11 @@
 package com.github.dgaponov99.practicum.mymarket.service;
 
-import java.io.InputStream;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferFactory;
+import reactor.core.publisher.Flux;
 
 public interface ItemImageService {
 
-    InputStream getImage(long itemId);
+    Flux<DataBuffer> getImage(long itemId, DataBufferFactory dataBufferFactory);
 
 }

@@ -5,6 +5,7 @@ import com.github.dgaponov99.practicum.mymarket.percistence.ItemsSortBy;
 import com.github.dgaponov99.practicum.mymarket.percistence.entity.CartItem;
 import com.github.dgaponov99.practicum.mymarket.percistence.entity.Item;
 import com.github.dgaponov99.practicum.mymarket.percistence.entity.Order;
+import com.github.dgaponov99.practicum.mymarket.percistence.entity.OrderItem;
 import com.github.dgaponov99.practicum.mymarket.service.CartService;
 import com.github.dgaponov99.practicum.mymarket.service.ItemImageService;
 import com.github.dgaponov99.practicum.mymarket.service.ItemService;
@@ -18,18 +19,14 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.time.Instant;
-import java.util.Collections;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
@@ -58,7 +55,8 @@ public class MarketControllerTest {
             "/", "/items",
     })
     void items_empty() {
-        when(itemService.search(isNull(), anyInt(), anyInt(), any())).thenReturn(Page.empty());
+        when(itemService.searchCount(isNull())).thenReturn(Mono.just(0));
+        when(itemService.search(isNull(), anyInt(), anyInt(), any())).thenReturn(Flux.empty());
 
         webTestClient.get()
                 .uri("/")
@@ -69,18 +67,18 @@ public class MarketControllerTest {
                 .contentTypeCompatibleWith(MediaType.TEXT_HTML);
 
         verify(itemService, times(1)).search(null, 0, 5, ItemsSortBy.NO);
+        verify(itemService, times(1)).searchCount(null);
         verifyNoMoreInteractions(itemService);
     }
 
     @Test
     void items_notEmpty() {
-        when(itemService.search(anyString(), anyInt(), anyInt(), any())).thenReturn(new PageImpl<>(
-                List.of(new Item(3L, "Intel Core i7", "Intel Core i7 4th gen", 2300),
-                        new Item(2L, "Intel Core i7", "Intel Core i7", 1300),
-                        new Item(1L, "Intel Core i3", "Intel Core i3", 1900)),
-                PageRequest.of(1, 3, Sort.by(Sort.Direction.DESC, "id")),
-                10));
-        when(cartService.countByItemId(anyLong())).thenReturn(0, 0, 1);
+        when(itemService.searchCount(anyString())).thenReturn(Mono.just(10));
+        when(itemService.search(anyString(), anyInt(), anyInt(), any())).thenReturn(Flux.fromIterable(
+                List.of(new Item(3L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false),
+                        new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false),
+                        new Item(1L, "Intel Core i3", "Intel Core i3", 1900, false))));
+        when(cartService.countByItemId(anyLong())).thenReturn(Mono.just(0), Mono.just(0), Mono.just(1));
 
         webTestClient.get()
                 .uri(uriBuilder -> uriBuilder.path("/items")
@@ -96,13 +94,14 @@ public class MarketControllerTest {
                 .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
 
         verify(itemService, times(1)).search("core", 0, 3, ItemsSortBy.NO);
+        verify(itemService, times(1)).searchCount("core");
         verify(cartService, times(3)).countByItemId(anyLong());
         verifyNoMoreInteractions(itemService, cartService);
     }
 
     @Test
     void itemCartAction_increment() {
-        doNothing().when(cartService).incrementItem(anyLong());
+        when(cartService.incrementItem(anyLong())).thenReturn(Mono.empty());
 
         webTestClient.post()
                 .uri("/items")
@@ -122,7 +121,7 @@ public class MarketControllerTest {
 
     @Test
     void itemCartAction_decrement() {
-        doNothing().when(cartService).decrementItem(anyLong());
+        when(cartService.decrementItem(anyLong())).thenReturn(Mono.empty());
 
         webTestClient.post()
                 .uri("/items")
@@ -142,7 +141,7 @@ public class MarketControllerTest {
 
     @Test
     void itemCartAction_decrement_cartItemNotFoundException() {
-        doThrow(CartItemNotFoundException.class).when(cartService).decrementItem(anyLong());
+        when(cartService.decrementItem(anyLong())).thenReturn(Mono.error(new CartItemNotFoundException(1L)));
 
         webTestClient.post()
                 .uri("/items")
@@ -162,8 +161,8 @@ public class MarketControllerTest {
 
     @Test
     void item_success() {
-        when(itemService.findById(anyLong())).thenReturn(Optional.of(new Item(3L, "Intel Core i7", "Intel Core i7 4th gen", 2300)));
-        when(cartService.countByItemId(anyLong())).thenReturn(1);
+        when(itemService.findById(anyLong())).thenReturn(Mono.just(new Item(3L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)));
+        when(cartService.countByItemId(anyLong())).thenReturn(Mono.just(1));
 
         webTestClient.get()
                 .uri("/items/{id}", 1L)
@@ -182,7 +181,7 @@ public class MarketControllerTest {
 
     @Test
     void item_increment() {
-        doNothing().when(cartService).incrementItem(anyLong());
+        when(cartService.incrementItem(anyLong())).thenReturn(Mono.empty());
 
         webTestClient.post()
                 .uri("/items/{id}", 1)
@@ -200,11 +199,11 @@ public class MarketControllerTest {
 
     @Test
     void cart() {
-        when(cartService.getCartItems()).thenReturn(List.of(new CartItem(1L, 3), new CartItem(2L, 2)));
+        when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
         //noinspection unchecked
         when(itemService.findById(anyLong())).thenReturn(
-                Optional.of(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300)),
-                Optional.of(new Item(2L, "Intel Core i7", "Intel Core i7", 1300))
+                Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
+                Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
         );
 
         webTestClient.get()
@@ -224,7 +223,7 @@ public class MarketControllerTest {
 
     @Test
     void cartItemsAction_increment() {
-        doNothing().when(cartService).incrementItem(anyLong());
+        when(cartService.incrementItem(anyLong())).thenReturn(Mono.empty());
 
         webTestClient.post()
                 .uri("/cart/items")
@@ -243,7 +242,7 @@ public class MarketControllerTest {
 
     @Test
     void orders_empty() {
-        when(orderService.findAll()).thenReturn(Collections.emptyList());
+        when(orderService.findAll()).thenReturn(Flux.empty());
 
         webTestClient.get()
                 .uri("/orders")
@@ -259,11 +258,9 @@ public class MarketControllerTest {
 
     @Test
     void orders_notEmpty() {
-        var order = new Order();
-        order.setId(1L);
-        order.setOrderDate(Instant.now());
-        order.addItem(new Item(1L, "Товар", "Описание товара", 10_000), 2);
-        when(orderService.findAll()).thenReturn(List.of(order));
+        when(orderService.findAll()).thenReturn(Flux.just(new Order(1L, LocalDateTime.now())));
+        when(orderService.getItems(anyLong())).thenReturn(Flux.just(new OrderItem(1L, 1L, 2)));
+        when(itemService.findById(anyLong())).thenReturn(Mono.just(new Item(1L, "Товар", "Описание товара", 10_000, false)));
 
         webTestClient.get()
                 .uri("/orders")
@@ -274,17 +271,16 @@ public class MarketControllerTest {
                 .contentTypeCompatibleWith(MediaType.TEXT_HTML);
 
         verify(orderService, times(1)).findAll();
+        verify(orderService, times(1)).getItems(1L);
+        verify(itemService, times(1)).findById(1L);
         verifyNoMoreInteractions(orderService);
     }
 
     @Test
     void order_success() {
-        var order = new Order();
-        order.setId(1L);
-        order.setOrderDate(Instant.now());
-        order.addItem(new Item(1L, "Товар", "Описание товара", 10_000), 2);
-
-        when(orderService.findById(anyLong())).thenReturn(Optional.of(order));
+        when(orderService.findById(anyLong())).thenReturn(Mono.just(new Order(1L, LocalDateTime.now())));
+        when(orderService.getItems(anyLong())).thenReturn(Flux.just(new OrderItem(1L, 1L, 2)));
+        when(itemService.findById(anyLong())).thenReturn(Mono.just(new Item(1L, "Товар", "Описание товара", 10_000, false)));
 
         webTestClient.get()
                 .uri("/orders/{id}", 1L)
@@ -297,16 +293,14 @@ public class MarketControllerTest {
                 .value(html -> assertTrue(html.contains("Товар")));
 
         verify(orderService, times(1)).findById(1L);
+        verify(orderService, times(1)).getItems(1L);
+        verify(itemService, times(1)).findById(1L);
         verifyNoMoreInteractions(orderService);
     }
 
     @Test
     void buy_success() {
-        var order = new Order();
-        order.setId(1L);
-        order.setOrderDate(Instant.now());
-        order.addItem(new Item(1L, "Товар", "Описание товара", 10_000), 2);
-        when(orderService.create()).thenReturn(order);
+        when(orderService.create()).thenReturn(Mono.just(new Order(1L, LocalDateTime.now())));
 
         webTestClient.post()
                 .uri("/buy")

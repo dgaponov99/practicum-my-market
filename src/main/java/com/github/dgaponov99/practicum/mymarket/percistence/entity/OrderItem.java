@@ -1,42 +1,28 @@
 package com.github.dgaponov99.practicum.mymarket.percistence.entity;
 
-import jakarta.persistence.*;
-import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
 
 @Getter
 @Setter
 @ToString
-@EqualsAndHashCode(onlyExplicitlyIncluded = true)
-@Entity
+@NoArgsConstructor
+@Table("order_item")
 public class OrderItem {
 
-    @EmbeddedId
-    private OrderItemPK pk;
-
-    @MapsId("orderId")
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "order_id", referencedColumnName = "order_id")
-    private Order order;
-
-    @MapsId("itemId")
-    @ManyToOne(fetch = FetchType.EAGER, optional = false)
-    @JoinColumn(name = "item_id", referencedColumnName = "item_id")
-    private Item item;
-
-    @Column(nullable = false)
+    @Id
+    private Long id;
+    private Long orderId;
+    private Long itemId;
     private int count;
 
-    protected OrderItem() {
-    }
-
-    public OrderItem(Order order, Item item, int count) {
-        this.order = order;
-        this.item = item;
+    public OrderItem(long orderId, long itemId, int count) {
+        this.orderId = orderId;
+        this.itemId = itemId;
         this.count = count;
-        this.pk = new OrderItemPK(order.getId(), item.getId());
     }
-
 }

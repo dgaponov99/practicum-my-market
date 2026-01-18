@@ -1,13 +1,17 @@
 package com.github.dgaponov99.practicum.mymarket.web.controller;
 
+import com.github.dgaponov99.practicum.mymarket.exception.ImageItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.percistence.ItemsSortBy;
 import com.github.dgaponov99.practicum.mymarket.web.CartAction;
 import com.github.dgaponov99.practicum.mymarket.web.service.MarketViewService;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.ListUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,8 +19,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.reactive.result.view.Rendering;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Set;
@@ -116,11 +122,16 @@ public class MarketController {
         return marketViewService.buy().map("redirect:/orders/%d?newOrder=true"::formatted);
     }
 
-    @GetMapping("/images/{id}")
-    public Mono<ResponseEntity<Resource>> image(@PathVariable long id) {
-        return marketViewService.getItemImageResource(id)
-                .singleOptional()
-                .map(ResponseEntity::of);
+    @GetMapping(value = "/images/{id}", produces = MediaType.IMAGE_PNG_VALUE)
+    public Mono<ResponseEntity<Flux<DataBuffer>>> image(@PathVariable long id, ServerHttpResponse response) {
+        return Mono.just(
+                ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_PNG)
+                        .body(marketViewService.getItemImageResource(id, response.bufferFactory())
+                                .onErrorResume(ImageItemNotFoundException.class,
+                                        e -> Flux.error(new ResponseStatusException(HttpStatus.NOT_FOUND))
+                                ))
+        );
     }
 
     private Rendering redirect(String redirectUrl, MultiValueMap<String, String> queryParams, MultiValueMap<String, String> formData, String... excludeParams) {
