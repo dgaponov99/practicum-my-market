@@ -24,6 +24,7 @@
 
     <modules>
         <module>my-market-app</module>
+        <module>my-market-payment</module>
     </modules>
 
     <build>
