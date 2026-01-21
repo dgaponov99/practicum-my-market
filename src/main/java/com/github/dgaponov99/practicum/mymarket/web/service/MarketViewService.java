@@ -1,7 +1,6 @@
 package com.github.dgaponov99.practicum.mymarket.web.service;
 
 import com.github.dgaponov99.practicum.mymarket.exception.CartItemNotFoundException;
-import com.github.dgaponov99.practicum.mymarket.exception.ImageItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.exception.ItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.exception.OrderNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.percistence.ItemsSortBy;
@@ -17,14 +16,13 @@ import com.github.dgaponov99.practicum.mymarket.web.view.ItemsPageView;
 import com.github.dgaponov99.practicum.mymarket.web.view.OrderView;
 import com.github.dgaponov99.practicum.mymarket.web.view.PagingView;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.io.Resource;
-import org.springframework.data.domain.Page;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -35,82 +33,76 @@ public class MarketViewService {
     private final OrderService orderService;
     private final ItemImageService itemImageService;
 
-    @Transactional(readOnly = true)
-    public ItemView getItem(long id) {
-        var item = itemService.findById(id).orElseThrow(() -> new ItemNotFoundException(id));
-        var itemCartCount = cartService.countByItemId(id);
-        return toItemView(item, itemCartCount);
+    public Mono<ItemView> getItem(long id) {
+        return Mono.zip(itemService.findById(id),
+                        cartService.countByItemId(id)
+                )
+                .map(tuple -> toItemView(tuple.getT1(), tuple.getT2()));
     }
 
-    public Optional<Resource> getItemImageResource(long itemId) {
-        try {
-            return Optional.of(new InputStreamResource(itemImageService.getImage(itemId)));
-        } catch (ImageItemNotFoundException e) {
-            return Optional.empty();
-        }
+    public Flux<DataBuffer> getItemImageResource(long itemId, DataBufferFactory dataBufferFactory) {
+        return itemImageService.getImage(itemId, dataBufferFactory);
     }
 
-    @Transactional(readOnly = true)
-    public List<ItemView> getCartItems() {
-        return cartService.getCartItems().stream().map(cartItem -> {
-                    var item = itemService.findById(cartItem.getItemId()).orElseThrow(() -> new ItemNotFoundException(cartItem.getItemId()));
-                    return toItemView(item, cartItem.getCount());
-                })
-                .toList();
+    public Flux<ItemView> getCartItems() {
+        return cartService.getCartItems()
+                .flatMap(cartItem ->
+                        itemService.findById(cartItem.getItemId())
+                                .switchIfEmpty(Mono.error(new ItemNotFoundException(cartItem.getItemId())))
+                                .map(item -> toItemView(item, cartItem.getCount())));
     }
 
-    @Transactional(readOnly = true)
-    public ItemsPageView search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
-        var page = itemService.search(searchText, pageNumber - 1, pageSize, sortBy);
-        var paging = toPagingView(page);
-        var itemViewList = page.getContent().stream()
-                .map(item -> {
-                    var itemCartCount = cartService.countByItemId(item.getId());
-                    return toItemView(item, itemCartCount);
-                }).toList();
-        return new ItemsPageView(itemViewList, paging);
+    public Mono<ItemsPageView> search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
+        return itemService.searchCount(searchText).flatMap(totalSearchCount ->
+                        itemService.search(searchText, pageNumber - 1, pageSize, sortBy)
+                                .flatMap(item -> cartService.countByItemId(item.getId())
+                                        .map(itemCartCount -> toItemView(item, itemCartCount))
+                                )
+                                .collectList()
+                                .map(itemViews ->
+                                        new ItemsPageView(itemViews,
+                                                toPagingView(pageNumber, pageSize, totalSearchCount, itemViews.size())
+                                        )));
     }
 
-    @Transactional(readOnly = true)
-    public OrderView getOrder(long id) {
-        var order = orderService.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
-        return toOrderView(order);
+    public Mono<OrderView> getOrder(long id) {
+        return orderService.findById(id)
+                .switchIfEmpty(Mono.error(new OrderNotFoundException(id)))
+                .flatMap(this::flatMapOrderView);
     }
 
-    @Transactional(readOnly = true)
-    public List<OrderView> getOrders() {
-        return orderService.findAll().stream().map(this::toOrderView).toList();
+    public Flux<OrderView> getOrders() {
+        return orderService.findAll().flatMap(this::flatMapOrderView);
     }
 
-    public void cartAction(long itemId, CartAction action) {
-        switch (action) {
+    public Mono<Void> cartAction(long itemId, CartAction action) {
+        return switch (action) {
             case PLUS -> cartService.incrementItem(itemId);
-            case MINUS -> {
-                try {
-                    cartService.decrementItem(itemId);
-                } catch (CartItemNotFoundException ignore) {
-                }
-            }
-        }
+            case MINUS -> cartService.decrementItem(itemId).onErrorComplete(CartItemNotFoundException.class);
+        };
     }
 
-    @Transactional
-    public long buy() {
-        return orderService.create().getId();
+    public Mono<Long> buy() {
+        return orderService.create().map(Order::getId);
     }
 
-    public long calculateTotalPrice(List<ItemView> items) {
-        return items.stream().mapToLong(itemView -> itemView.price() * itemView.count()).sum();
+    public long calculateTotalPrice(List<ItemView> itemViews) {
+        return itemViews.stream().mapToLong(itemView -> itemView.price() * itemView.count()).sum();
     }
 
-    private OrderView toOrderView(Order order) {
-        OrderView orderView = new OrderView();
-        orderView.setId(order.getId());
-        orderView.setItems(order.getOrderItems().stream()
-                .map(orderItem -> toItemView(orderItem.getItem(), orderItem.getCount()))
-                .toList());
-        orderView.setTotalSum(calculateTotalPrice(orderView.items()));
-        return orderView;
+    private Mono<OrderView> flatMapOrderView(Order order) {
+        return orderService.getItems(order.getId())
+                .flatMap(orderItem -> itemService.findById(orderItem.getItemId())
+                        .map(item -> toItemView(item, orderItem.getCount()))
+                )
+                .collectList()
+                .map(itemViews -> {
+                    var orderView = new OrderView();
+                    orderView.setId(order.getId());
+                    orderView.setItems(itemViews);
+                    orderView.setTotalSum(calculateTotalPrice(itemViews));
+                    return orderView;
+                });
     }
 
     private ItemView toItemView(Item item, int count) {
@@ -123,12 +115,12 @@ public class MarketViewService {
         return itemView;
     }
 
-    private PagingView toPagingView(Page<?> page) {
+    private PagingView toPagingView(int pageNumber, int pageSize, int totalCount, int contentCount) {
         var paging = new PagingView();
-        paging.setPageNumber(page.getNumber() + 1);
-        paging.setPageSize(page.getSize());
-        paging.setHasPrevious(page.hasPrevious());
-        paging.setHasNext(page.hasNext());
+        paging.setPageNumber(pageNumber);
+        paging.setPageSize(pageSize);
+        paging.setHasPrevious(pageNumber > 1);
+        paging.setHasNext((pageNumber - 1) * pageSize + contentCount < totalCount);
         return paging;
     }
 

@@ -1,51 +1,58 @@
 package com.github.dgaponov99.practicum.mymarket.service;
 
 import com.github.dgaponov99.practicum.mymarket.exception.EmptyCartException;
-import com.github.dgaponov99.practicum.mymarket.exception.ItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.percistence.entity.Order;
+import com.github.dgaponov99.practicum.mymarket.percistence.entity.OrderItem;
 import com.github.dgaponov99.practicum.mymarket.percistence.repository.CartItemRepository;
-import com.github.dgaponov99.practicum.mymarket.percistence.repository.ItemRepository;
+import com.github.dgaponov99.practicum.mymarket.percistence.repository.OrderItemRepository;
 import com.github.dgaponov99.practicum.mymarket.percistence.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    private final ItemRepository itemRepository;
     private final CartItemRepository cartItemRepository;
+    private final OrderItemRepository orderItemRepository;
 
-    @Transactional(readOnly = true)
-    public Optional<Order> findById(Long id) {
+    public Mono<Order> findById(Long id) {
         return orderRepository.findById(id);
     }
 
-    @Transactional(readOnly = true)
-    public List<Order> findAll() {
+    public Flux<Order> findAll() {
         return orderRepository.findAll();
     }
 
-    @Transactional
-    public Order create() {
-        var cartItems = cartItemRepository.findAll();
-        if (cartItems.isEmpty()) {
-            throw new EmptyCartException();
-        }
-        var order = new Order();
-        cartItems.forEach(cartItem -> {
-            var item = itemRepository.findById(cartItem.getItemId()).orElseThrow(() -> new ItemNotFoundException(cartItem.getItemId()));
-            order.addItem(item, cartItem.getCount());
-        });
-        cartItemRepository.deleteAll();
-        order.setOrderDate(Instant.now());
-        return orderRepository.save(order);
+    public Flux<OrderItem> getItems(long orderId) {
+        return orderItemRepository.findByOrderId(orderId);
+    }
+
+    public Mono<Order> create() {
+        var cartItemFlux = cartItemRepository.findAll().cache();
+        return cartItemFlux.hasElements()
+                .flatMap(hasElements -> {
+                    if (!hasElements) {
+                        return Mono.error(new EmptyCartException());
+                    }
+
+                    var order = new Order();
+                    order.setOrderDate(LocalDateTime.now());
+                    return orderRepository.save(order)
+                            .flatMap(createdOrder ->
+                                    cartItemFlux.flatMap(cartItem ->
+                                                    orderItemRepository.save(
+                                                            new OrderItem(createdOrder.getId(), cartItem.getItemId(), cartItem.getCount())
+                                                    ))
+                                            .then(cartItemRepository.deleteAll())
+                                            .then(Mono.just(createdOrder)));
+                });
     }
 
 }

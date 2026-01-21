@@ -1,23 +1,28 @@
 package com.github.dgaponov99.practicum.mymarket.integration.run.component;
 
-import com.github.dgaponov99.practicum.mymarket.exception.ImageItemNotFoundException;
+import com.github.dgaponov99.practicum.mymarket.config.ImageStoreProperties;
+import com.github.dgaponov99.practicum.mymarket.exception.ItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.service.ItemImageService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferFactory;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.stereotype.Service;
-
-import java.io.InputStream;
+import reactor.core.publisher.Flux;
 
 @Service
 @Primary
 public class TestImageService implements ItemImageService {
 
-    @Override
-    public InputStream getImage(long itemId) {
-        var imageIs = getClass().getClassLoader().getResourceAsStream("images/%d.png".formatted(itemId));
-        if (imageIs == null) {
-            throw new ImageItemNotFoundException(itemId);
-        }
-        return imageIs;
-    }
+    @Autowired
+    private ImageStoreProperties imageStoreProperties;
 
+    public Flux<DataBuffer> getImage(long itemId, DataBufferFactory dataBufferFactory) {
+        return DataBufferUtils.read(new ClassPathResource("images/%d.png".formatted(itemId)),
+                dataBufferFactory,
+                imageStoreProperties.getBufferChunkSize()
+        ).onErrorMap(e -> new ItemNotFoundException(itemId));
+    }
 }

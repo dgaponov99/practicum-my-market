@@ -1,23 +1,39 @@
 package com.github.dgaponov99.practicum.mymarket.percistence.entity;
 
-import jakarta.persistence.*;
 import lombok.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
+import org.springframework.data.domain.Persistable;
+import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.data.relational.core.mapping.Table;
+import org.springframework.lang.Nullable;
 
 @Getter
 @Setter
 @ToString
-@EqualsAndHashCode(onlyExplicitlyIncluded = true)
 @NoArgsConstructor
 @AllArgsConstructor
-@Entity
-public class CartItem {
+@Table("cart_item")
+public class CartItem implements Persistable<Long> {
 
     @Id
-    @EqualsAndHashCode.Include
-    @Column(name = "item_id")
+    @Column("item_id")
     private Long itemId;
 
-    @Column(nullable = false)
     private int count;
 
+    @Transient
+    @Setter(AccessLevel.NONE)
+    private boolean isNew;
+
+    @Nullable
+    @Override
+    public Long getId() {
+        return itemId;
+    }
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
 }

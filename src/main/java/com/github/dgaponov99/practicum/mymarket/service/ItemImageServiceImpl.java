@@ -1,34 +1,32 @@
 package com.github.dgaponov99.practicum.mymarket.service;
 
+import com.github.dgaponov99.practicum.mymarket.config.ImageStoreProperties;
 import com.github.dgaponov99.practicum.mymarket.exception.ItemNotFoundException;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferFactory;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 @Service
+@RequiredArgsConstructor
 public class ItemImageServiceImpl implements ItemImageService {
 
-    @Value("${item.image.directory:images}")
-    private String itemImageDirectoryPath;
+    private final ImageStoreProperties imageStoreProperties;
 
-    public InputStream getImage(long itemId) {
-        if (Files.notExists(getImagePath(itemId))) {
-            throw new ItemNotFoundException(itemId);
-        }
-        try {
-            return Files.newInputStream(getImagePath(itemId));
-        } catch (IOException e) {
-            throw new RuntimeException(e.getMessage(), e);
-        }
+    public Flux<DataBuffer> getImage(long itemId, DataBufferFactory dataBufferFactory) {
+        return DataBufferUtils.read(getImagePath(itemId),
+                dataBufferFactory,
+                imageStoreProperties.getBufferChunkSize()
+        ).onErrorMap(e -> new ItemNotFoundException(itemId));
     }
 
     protected Path getImagePath(long itemId) {
-        return Paths.get(itemImageDirectoryPath, "%d.png".formatted(itemId));
+        return Paths.get(imageStoreProperties.getStoreDirectoryPath(), "%d.png".formatted(itemId));
     }
 
 }
