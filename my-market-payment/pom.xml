@@ -103,7 +103,7 @@
                             <goal>generate</goal>
                         </goals>
                         <configuration>
-                            <inputSpec>src/main/resources/openapi/payment-openapi.yaml</inputSpec>
+                            <inputSpec>${project.basedir}/src/main/resources/openapi/payment-openapi.yaml</inputSpec>
                             <generatorName>spring</generatorName>
                             <apiPackage>com.github.dgaponov99.practicum.mymarket.payment.web.controller</apiPackage>
                             <modelPackage>com.github.dgaponov99.practicum.mymarket.payment.web.dto</modelPackage>
