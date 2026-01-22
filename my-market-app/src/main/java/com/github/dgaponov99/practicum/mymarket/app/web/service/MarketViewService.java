@@ -1,5 +1,8 @@
 package com.github.dgaponov99.practicum.mymarket.app.web.service;
 
+import com.github.dgaponov99.practicum.mymarket.app.client.api.AccountApi;
+import com.github.dgaponov99.practicum.mymarket.app.client.dto.AccountDTO;
+import com.github.dgaponov99.practicum.mymarket.app.client.dto.AmountDTO;
 import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.exception.ItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.exception.OrderNotFoundException;
@@ -11,14 +14,12 @@ import com.github.dgaponov99.practicum.mymarket.app.service.ItemImageService;
 import com.github.dgaponov99.practicum.mymarket.app.service.ItemService;
 import com.github.dgaponov99.practicum.mymarket.app.service.OrderService;
 import com.github.dgaponov99.practicum.mymarket.app.web.CartAction;
-import com.github.dgaponov99.practicum.mymarket.app.web.view.ItemView;
-import com.github.dgaponov99.practicum.mymarket.app.web.view.ItemsPageView;
-import com.github.dgaponov99.practicum.mymarket.app.web.view.OrderView;
-import com.github.dgaponov99.practicum.mymarket.app.web.view.PagingView;
+import com.github.dgaponov99.practicum.mymarket.app.web.view.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -32,6 +33,7 @@ public class MarketViewService {
     private final CartService cartService;
     private final OrderService orderService;
     private final ItemImageService itemImageService;
+    private final AccountApi accountApi;
 
     public Mono<ItemView> getItem(long id) {
         return Mono.zip(itemService.findById(id),
@@ -52,17 +54,31 @@ public class MarketViewService {
                                 .map(item -> toItemView(item, cartItem.getCount())));
     }
 
+    public Mono<EnableBuyView> enableBuy(long cartTotal) {
+        return accountApi.getAccount()
+                .map(AccountDTO::getBalance)
+                .flatMap(currentBalance -> {
+                    if (currentBalance >= cartTotal * 100L) {
+                        return Mono.just(new EnableBuyView(true, null));
+                    } else {
+                        return Mono.just(new EnableBuyView(false, "Не достаточно средств для совершения покупки"));
+                    }
+                })
+                .onErrorResume(WebClientRequestException.class,
+                        ex -> Mono.just(new EnableBuyView(false, "Невозможно совершить покупку. Сервис платежей временно недоступен.")));
+    }
+
     public Mono<ItemsPageView> search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
         return itemService.searchCount(searchText).flatMap(totalSearchCount ->
-                        itemService.search(searchText, pageNumber - 1, pageSize, sortBy)
-                                .flatMap(item -> cartService.countByItemId(item.getId())
-                                        .map(itemCartCount -> toItemView(item, itemCartCount))
-                                )
-                                .collectList()
-                                .map(itemViews ->
-                                        new ItemsPageView(itemViews,
-                                                toPagingView(pageNumber, pageSize, totalSearchCount, itemViews.size())
-                                        )));
+                itemService.search(searchText, pageNumber - 1, pageSize, sortBy)
+                        .flatMap(item -> cartService.countByItemId(item.getId())
+                                .map(itemCartCount -> toItemView(item, itemCartCount))
+                        )
+                        .collectList()
+                        .map(itemViews ->
+                                new ItemsPageView(itemViews,
+                                        toPagingView(pageNumber, pageSize, totalSearchCount, itemViews.size())
+                                )));
     }
 
     public Mono<OrderView> getOrder(long id) {
@@ -83,7 +99,18 @@ public class MarketViewService {
     }
 
     public Mono<Long> buy() {
-        return orderService.create().map(Order::getId);
+        return getCartItems().collectList()
+                .map(this::calculateTotalPrice)
+                .flatMap(total ->
+                        accountApi.debit(new AmountDTO().amount(total * 100))
+                                .then(orderService.create()
+                                        .map(Order::getId)
+                                        .onErrorResume(ex ->
+                                                accountApi.credit(new AmountDTO().amount(total * 100))
+                                                        .then(Mono.error(ex))
+                                        )
+                                )
+                );
     }
 
     public long calculateTotalPrice(List<ItemView> itemViews) {

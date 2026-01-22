@@ -81,10 +81,16 @@ public class MarketController {
     public Mono<Rendering> cart() {
         return marketViewService.getCartItems()
                 .collectList()
-                .map(items -> Rendering.view("cart")
-                        .modelAttribute("items", items)
-                        .modelAttribute("total", marketViewService.calculateTotalPrice(items))
-                        .build());
+                .flatMap(items -> {
+                    var total = marketViewService.calculateTotalPrice(items);
+                    return marketViewService.enableBuy(total)
+                            .map(enableBuyView ->
+                                    Rendering.view("cart")
+                                            .modelAttribute("items", items)
+                                            .modelAttribute("total", total)
+                                            .modelAttribute("enableBuy", enableBuyView)
+                                            .build());
+                });
     }
 
     @PostMapping("/cart/items")

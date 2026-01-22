@@ -1,5 +1,8 @@
 package com.github.dgaponov99.practicum.mymarket.app.module.web;
 
+import com.github.dgaponov99.practicum.mymarket.app.client.api.AccountApi;
+import com.github.dgaponov99.practicum.mymarket.app.client.dto.AccountDTO;
+import com.github.dgaponov99.practicum.mymarket.app.client.dto.AmountDTO;
 import com.github.dgaponov99.practicum.mymarket.app.config.MarketViewProperties;
 import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.ItemsSortBy;
@@ -20,12 +23,17 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.net.ConnectException;
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -50,6 +58,8 @@ public class MarketControllerTest {
     OrderService orderService;
     @MockitoBean
     ItemImageService itemImageService;
+    @MockitoBean
+    AccountApi accountApi;
 
     @ParameterizedTest
     @CsvSource({
@@ -199,13 +209,14 @@ public class MarketControllerTest {
     }
 
     @Test
-    void cart() {
+    void cart_enableBuy() {
         when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
         //noinspection unchecked
         when(itemService.findById(anyLong())).thenReturn(
                 Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
                 Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
         );
+        when(accountApi.getAccount()).thenReturn(Mono.just(new AccountDTO().balance(1000000L)));
 
         webTestClient.get()
                 .uri("/cart/items")
@@ -219,7 +230,66 @@ public class MarketControllerTest {
 
         verify(cartService, times(1)).getCartItems();
         verify(itemService, times(2)).findById(anyLong());
+        verify(accountApi, times(1)).getAccount();
         verifyNoMoreInteractions(itemService, cartService);
+    }
+
+    @Test
+    void cart_notEnableBuy_insufficientBalance() {
+        when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
+        //noinspection unchecked
+        when(itemService.findById(anyLong())).thenReturn(
+                Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
+                Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
+        );
+        when(accountApi.getAccount()).thenReturn(Mono.just(new AccountDTO().balance(500000L)));
+
+        webTestClient.get()
+                .uri("/cart/items")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")))
+                .value(html -> assertTrue(html.contains("Не достаточно средств для совершения покупки")));
+
+        verify(cartService, times(1)).getCartItems();
+        verify(itemService, times(2)).findById(anyLong());
+        verify(accountApi, times(1)).getAccount();
+        verifyNoMoreInteractions(itemService, cartService);
+    }
+
+    @Test
+    void cart_notEnableBuy_paymentServiceRefused() {
+        when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
+        //noinspection unchecked
+        when(itemService.findById(anyLong())).thenReturn(
+                Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
+                Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
+        );
+        when(accountApi.getAccount()).thenReturn(Mono.error(new WebClientRequestException(
+                new ConnectException("Connection refused"),
+                HttpMethod.POST,
+                URI.create("http://payment"),
+                HttpHeaders.EMPTY)));
+
+        webTestClient.get()
+                .uri("/cart/items")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")))
+                .value(html -> assertTrue(html.contains("Сервис платежей временно недоступен")));
+
+        verify(cartService, times(1)).getCartItems();
+        verify(itemService, times(2)).findById(anyLong());
+        verify(accountApi, times(1)).getAccount();
+        verifyNoMoreInteractions(itemService, cartService, accountApi);
     }
 
     @Test
@@ -301,7 +371,14 @@ public class MarketControllerTest {
 
     @Test
     void buy_success() {
+        when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
+        //noinspection unchecked
+        when(itemService.findById(anyLong())).thenReturn(
+                Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
+                Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
+        );
         when(orderService.create()).thenReturn(Mono.just(new Order(1L, LocalDateTime.now())));
+        when(accountApi.debit(any())).thenReturn(Mono.just(new AccountDTO().balance(30000L)));
 
         webTestClient.post()
                 .uri("/buy")
@@ -311,8 +388,11 @@ public class MarketControllerTest {
                 .expectHeader()
                 .location("/orders/1?newOrder=true");
 
+        verify(cartService, times(1)).getCartItems();
+        verify(itemService, times(2)).findById(anyLong());
         verify(orderService, times(1)).create();
-        verifyNoMoreInteractions(orderService);
+        verify(accountApi, times(1)).debit(new AmountDTO().amount(950000L));
+        verifyNoMoreInteractions(orderService, cartService, itemService, accountApi);
     }
 
 }
