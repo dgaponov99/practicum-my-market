@@ -1,0 +1,26 @@
+services:
+  my-market-app:
+    build: ./my-market-app
+    environment:
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - PAYMENT_SERVICE_URL=http://my-market-payment:8081
+      - SPRING_R2DBC_URL=r2dbc:postgresql://host.docker.internal:5432/practicum_my_market
+      - SPRING_LIQUIBASE_URL=jdbc:postgresql://host.docker.internal:5432/practicum_my_market
+      - SPRING.DATA.REDIS.HOST=host.docker.internal
+    ports:
+      - "80:80"
+    depends_on:
+      my-market-payment:
+        condition: service_started
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  my-market-payment:
+    build: ./my-market-payment
+    environment:
+      - JAVA_OPTS=-Xms256m -Xmx256m
+      - SPRING_R2DBC_URL=r2dbc:postgresql://host.docker.internal:5432/practicum_my_market?currentSchema=payment
+      - SPRING_LIQUIBASE_URL=jdbc:postgresql://host.docker.internal:5432/practicum_my_market?currentSchema=payment
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
