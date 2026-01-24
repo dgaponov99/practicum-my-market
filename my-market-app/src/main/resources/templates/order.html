@@ -29,28 +29,28 @@
     </div>
     <div class="row p-2">
         <div class="col">
-            <h2 th:text="${'Заказ №'+order.id()}"></h2>
+            <h2 th:text="${'Заказ №'+order.getId()}"></h2>
         </div>
     </div>
-    <div class="row p-2" th:each="item : ${order.items()}">
+    <div class="row p-2" th:each="item : ${order.getItems()}">
         <div class="col">
             <div class="card">
                 <div class="card-header">
-                    <b th:text="${item.title()}"></b>
+                    <b th:text="${item.getTitle()}"></b>
                 </div>
                 <ul class="list-group list-group-flush">
-                    <li class="list-group-item" th:text="${item.count()}+' шт.'"/>
-                    <li class="list-group-item" th:text="${item.price()}+' руб.'"/>
+                    <li class="list-group-item" th:text="${item.getCount()}+' шт.'"/>
+                    <li class="list-group-item" th:text="${item.getPrice()}+' руб.'"/>
                 </ul>
                 <div class="card-footer">
-                    <b th:text="${'Сумма: '+item.count()*item.price()}+' руб.'"></b>
+                    <b th:text="${'Сумма: '+item.getCount()*item.getPrice()}+' руб.'"></b>
                 </div>
             </div>
         </div>
     </div>
     <div class="row p-2">
         <div class="col">
-            <h3 th:text="${'Сумма: '+order.totalSum()}+' руб.'"></h3>
+            <h3 th:text="${'Сумма: '+order.getTotalSum()}+' руб.'"></h3>
         </div>
     </div>
 </div>

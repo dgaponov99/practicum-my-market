@@ -1,10 +1,15 @@
-package com.github.dgaponov99.practicum.mymarket.app.module.web;
+package com.github.dgaponov99.practicum.mymarket.app.integration.web;
 
 import com.github.dgaponov99.practicum.mymarket.app.client.api.AccountApi;
 import com.github.dgaponov99.practicum.mymarket.app.client.dto.AccountDTO;
 import com.github.dgaponov99.practicum.mymarket.app.client.dto.AmountDTO;
+import com.github.dgaponov99.practicum.mymarket.app.config.CacheProperties;
 import com.github.dgaponov99.practicum.mymarket.app.config.MarketViewProperties;
+import com.github.dgaponov99.practicum.mymarket.app.event.DomainEventBus;
+import com.github.dgaponov99.practicum.mymarket.app.event.ItemChangeEvent;
 import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundException;
+import com.github.dgaponov99.practicum.mymarket.app.integration.PostgreSQLTestcontainer;
+import com.github.dgaponov99.practicum.mymarket.app.integration.RedisTestcontainer;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.ItemsSortBy;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.CartItem;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Item;
@@ -17,11 +22,18 @@ import com.github.dgaponov99.practicum.mymarket.app.service.OrderService;
 import com.github.dgaponov99.practicum.mymarket.app.web.controller.MarketController;
 import com.github.dgaponov99.practicum.mymarket.app.web.service.MarketViewService;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.context.ImportTestcontainers;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -29,6 +41,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -36,6 +49,8 @@ import java.net.ConnectException;
 import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
@@ -43,12 +58,25 @@ import static org.mockito.Mockito.*;
 import static org.springframework.web.reactive.function.BodyInserters.fromFormData;
 
 @Slf4j
-@WebFluxTest(controllers = MarketController.class)
-@Import({MarketViewService.class, MarketViewProperties.class})
+/*@WebFluxTest(controllers = MarketController.class)
+@ComponentScan({
+        "com.github.dgaponov99.practicum.mymarket.app.config",
+        "com.github.dgaponov99.practicum.mymarket.app.web"
+})*/
+@SpringBootTest
+@AutoConfigureWebTestClient
+@Testcontainers
+@ImportTestcontainers({RedisTestcontainer.class, PostgreSQLTestcontainer.class})
 public class MarketControllerTest {
 
     @Autowired
     private WebTestClient webTestClient;
+    @Autowired
+    private CacheProperties cacheProperties;
+    @Autowired
+    private CacheManager cacheManager;
+    @Autowired
+    private DomainEventBus domainEventBus;
 
     @MockitoBean
     ItemService itemService;
@@ -60,6 +88,14 @@ public class MarketControllerTest {
     ItemImageService itemImageService;
     @MockitoBean
     AccountApi accountApi;
+
+    @BeforeEach
+    void setUp() {
+        cacheManager.getCacheNames().stream()
+                .map(cacheManager::getCache)
+                .filter(Objects::nonNull)
+                .forEach(Cache::clear);
+    }
 
     @ParameterizedTest
     @CsvSource({
@@ -187,6 +223,105 @@ public class MarketControllerTest {
 
         verify(itemService, times(1)).findById(1L);
         verify(cartService, times(1)).countByItemId(1L);
+        verifyNoMoreInteractions(itemService, cartService);
+    }
+
+    @Test
+    void item_cached() throws InterruptedException {
+        when(itemService.findById(anyLong())).thenReturn(Mono.just(new Item(3L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)));
+        when(cartService.countByItemId(anyLong())).thenReturn(Mono.just(1));
+
+        webTestClient.get()
+                .uri("/items/{id}", 1L)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
+
+        TimeUnit.MILLISECONDS.sleep(Math.min(200, cacheProperties.getCacheRedisSeconds() * 1000 / 2));
+
+        webTestClient.get()
+                .uri("/items/{id}", 1L)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
+
+        verify(itemService, times(1)).findById(1L);
+        verify(cartService, times(1)).countByItemId(1L);
+        verifyNoMoreInteractions(itemService, cartService);
+    }
+
+    @Test
+    void item_cacheExpired() throws InterruptedException {
+        when(itemService.findById(anyLong())).thenReturn(Mono.just(new Item(3L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)));
+        when(cartService.countByItemId(anyLong())).thenReturn(Mono.just(1));
+
+        webTestClient.get()
+                .uri("/items/{id}", 1L)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
+
+
+
+        webTestClient.get()
+                .uri("/items/{id}", 1L)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
+
+        verify(itemService, times(2)).findById(1L);
+        verify(cartService, times(2)).countByItemId(1L);
+        verifyNoMoreInteractions(itemService, cartService);
+    }
+
+    @Test
+    void item_cacheUpdated() throws InterruptedException {
+        when(itemService.findById(anyLong())).thenReturn(Mono.just(new Item(3L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)));
+        when(cartService.countByItemId(anyLong())).thenReturn(Mono.just(1));
+
+        webTestClient.get()
+                .uri("/items/{id}", 1L)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
+
+        domainEventBus.publish(new ItemChangeEvent(1L));
+
+        TimeUnit.MILLISECONDS.sleep(100);
+
+        webTestClient.get()
+                .uri("/items/{id}", 1L)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
+
+
+        verify(itemService, times(2)).findById(1L);
+        verify(cartService, times(2)).countByItemId(1L);
         verifyNoMoreInteractions(itemService, cartService);
     }
 

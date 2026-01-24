@@ -1,9 +1,12 @@
 package com.github.dgaponov99.practicum.mymarket.app.web.view;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
 @Setter
+@Getter
 @ToString
 public class ItemView {
 
@@ -13,27 +16,8 @@ public class ItemView {
     private long price;
     private int count;
 
-    public Long id() {
-        return id;
-    }
-
-    public String title() {
-        return title;
-    }
-
-    public String description() {
-        return description;
-    }
-
-    public long price() {
-        return price;
-    }
-
-    public int count() {
-        return count;
-    }
-
-    public String imgPath() {
+    @JsonIgnore
+    public String getImgPath() {
         return "images/%s".formatted(id);
     }
 

@@ -1,5 +1,6 @@
 package com.github.dgaponov99.practicum.mymarket.app.web.controller;
 
+import com.github.dgaponov99.practicum.mymarket.app.config.CacheProperties;
 import com.github.dgaponov99.practicum.mymarket.app.config.MarketViewProperties;
 import com.github.dgaponov99.practicum.mymarket.app.exception.ImageItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.ItemsSortBy;
@@ -8,6 +9,7 @@ import com.github.dgaponov99.practicum.mymarket.app.web.service.MarketViewServic
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.ListUtils;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +27,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.Set;
 
 @Controller
@@ -33,6 +36,7 @@ public class MarketController {
 
     private final MarketViewService marketViewService;
     private final MarketViewProperties marketViewProperties;
+    private final CacheProperties cacheProperties;
 
     @GetMapping({"/", "/items"})
     public Mono<Rendering> search(@RequestParam(required = false) String search,
@@ -131,6 +135,7 @@ public class MarketController {
         return Mono.just(
                 ResponseEntity.ok()
                         .contentType(MediaType.IMAGE_PNG)
+                        .cacheControl(CacheControl.maxAge(Duration.ofSeconds(cacheProperties.getCacheHttpImageSeconds())))
                         .body(marketViewService.getItemImageResource(id, response.bufferFactory())
                                 .onErrorResume(ImageItemNotFoundException.class,
                                         e -> Flux.error(new ResponseStatusException(HttpStatus.NOT_FOUND))

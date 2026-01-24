@@ -1,5 +1,7 @@
 package com.github.dgaponov99.practicum.mymarket.app.service;
 
+import com.github.dgaponov99.practicum.mymarket.app.event.DomainEventBus;
+import com.github.dgaponov99.practicum.mymarket.app.event.OrderChangeEvent;
 import com.github.dgaponov99.practicum.mymarket.app.exception.EmptyCartException;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Order;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.OrderItem;
@@ -20,6 +22,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final CartItemRepository cartItemRepository;
     private final OrderItemRepository orderItemRepository;
+    private final DomainEventBus domainEventBus;
 
     public Mono<Order> findById(Long id) {
         return orderRepository.findById(id);
@@ -51,7 +54,8 @@ public class OrderService {
                                                     ))
                                             .then(cartItemRepository.deleteAll())
                                             .then(Mono.just(createdOrder)));
-                });
+                })
+                .doOnSuccess(order -> domainEventBus.publish(new OrderChangeEvent(order.getId())));
     }
 
 }

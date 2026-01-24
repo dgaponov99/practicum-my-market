@@ -107,6 +107,7 @@
                             <generatorName>spring</generatorName>
                             <apiPackage>com.github.dgaponov99.practicum.mymarket.payment.web.controller</apiPackage>
                             <modelPackage>com.github.dgaponov99.practicum.mymarket.payment.web.dto</modelPackage>
+                            <addCompileSourceRoot>true</addCompileSourceRoot>
                             <configOptions>
                                 <interfaceOnly>true</interfaceOnly>
                                 <library>spring-boot</library>

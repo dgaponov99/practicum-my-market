@@ -16,6 +16,7 @@ import com.github.dgaponov99.practicum.mymarket.app.service.OrderService;
 import com.github.dgaponov99.practicum.mymarket.app.web.CartAction;
 import com.github.dgaponov99.practicum.mymarket.app.web.view.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class MarketViewService {
     private final ItemImageService itemImageService;
     private final AccountApi accountApi;
 
+    @Cacheable(cacheNames = "itemView", key = "#id")
     public Mono<ItemView> getItem(long id) {
         return Mono.zip(itemService.findById(id),
                         cartService.countByItemId(id)
@@ -68,6 +70,7 @@ public class MarketViewService {
                         ex -> Mono.just(new EnableBuyView(false, "Невозможно совершить покупку. Сервис платежей временно недоступен.")));
     }
 
+    @Cacheable(cacheNames = "itemsPageView", key = "#searchText + ':' + #pageNumber + ':' + #pageSize + ':' + #sortBy")
     public Mono<ItemsPageView> search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
         return itemService.searchCount(searchText).flatMap(totalSearchCount ->
                 itemService.search(searchText, pageNumber - 1, pageSize, sortBy)
@@ -81,12 +84,14 @@ public class MarketViewService {
                                 )));
     }
 
+    @Cacheable(cacheNames = "orderView", key = "#id")
     public Mono<OrderView> getOrder(long id) {
         return orderService.findById(id)
                 .switchIfEmpty(Mono.error(new OrderNotFoundException(id)))
                 .flatMap(this::flatMapOrderView);
     }
 
+    @Cacheable(cacheNames = "ordersView")
     public Flux<OrderView> getOrders() {
         return orderService.findAll().flatMap(this::flatMapOrderView);
     }
@@ -114,7 +119,7 @@ public class MarketViewService {
     }
 
     public long calculateTotalPrice(List<ItemView> itemViews) {
-        return itemViews.stream().mapToLong(itemView -> itemView.price() * itemView.count()).sum();
+        return itemViews.stream().mapToLong(itemView -> itemView.getPrice() * itemView.getCount()).sum();
     }
 
     private Mono<OrderView> flatMapOrderView(Order order) {

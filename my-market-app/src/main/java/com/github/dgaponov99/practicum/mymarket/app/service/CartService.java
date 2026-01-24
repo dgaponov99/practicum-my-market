@@ -1,5 +1,7 @@
 package com.github.dgaponov99.practicum.mymarket.app.service;
 
+import com.github.dgaponov99.practicum.mymarket.app.event.CartItemChangeEvent;
+import com.github.dgaponov99.practicum.mymarket.app.event.DomainEventBus;
 import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.exception.ItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.CartItem;
@@ -16,6 +18,7 @@ public class CartService {
 
     private final CartItemRepository cartItemRepository;
     private final ItemRepository itemRepository;
+    private final DomainEventBus domainEventBus;
 
     public Mono<Integer> countByItemId(long itemId) {
         return cartItemRepository.findById(itemId)
@@ -37,6 +40,7 @@ public class CartService {
                     return cartItem;
                 })
                 .flatMap(cartItemRepository::save)
+                .doOnSuccess(cartItem -> domainEventBus.publish(new CartItemChangeEvent(cartItem.getItemId())))
                 .then();
     }
 
@@ -53,7 +57,8 @@ public class CartService {
                     } else {
                         return cartItemRepository.save(cartItem).then();
                     }
-                });
+                })
+                .doOnSuccess(cartItem -> domainEventBus.publish(new CartItemChangeEvent(itemId)));
     }
 
 }
