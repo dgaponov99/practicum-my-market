@@ -58,11 +58,6 @@ import static org.mockito.Mockito.*;
 import static org.springframework.web.reactive.function.BodyInserters.fromFormData;
 
 @Slf4j
-/*@WebFluxTest(controllers = MarketController.class)
-@ComponentScan({
-        "com.github.dgaponov99.practicum.mymarket.app.config",
-        "com.github.dgaponov99.practicum.mymarket.app.web"
-})*/
 @SpringBootTest
 @AutoConfigureWebTestClient
 @Testcontainers
@@ -273,7 +268,7 @@ public class MarketControllerTest {
                 .expectBody(String.class)
                 .value(html -> assertTrue(html.contains("Intel Core i7 4th gen")));
 
-
+        TimeUnit.MILLISECONDS.sleep(cacheProperties.getCacheRedisSeconds() * 1000 + 2);
 
         webTestClient.get()
                 .uri("/items/{id}", 1L)

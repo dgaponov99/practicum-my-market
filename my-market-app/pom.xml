@@ -99,6 +99,22 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <layers>
+                        <enabled>true</enabled>
+                        <configuration>${project.basedir}/src/main/resources/layers.xml</configuration>
+                    </layers>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.openapitools</groupId>
                 <artifactId>openapi-generator-maven-plugin</artifactId>
                 <version>7.17.0</version>
@@ -113,6 +129,7 @@
                             <invokerPackage>com.github.dgaponov99.practicum.mymarket.app.client.invoker</invokerPackage>
                             <apiPackage>com.github.dgaponov99.practicum.mymarket.app.client.api</apiPackage>
                             <modelPackage>com.github.dgaponov99.practicum.mymarket.app.client.dto</modelPackage>
+                            <addCompileSourceRoot>true</addCompileSourceRoot>
                             <generateModelTests>false</generateModelTests>
                             <generateApiTests>false</generateApiTests>
                             <generateApiDocumentation>false</generateApiDocumentation>
