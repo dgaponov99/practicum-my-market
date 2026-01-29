@@ -4,6 +4,7 @@ import com.github.dgaponov99.practicum.mymarket.app.percistence.ItemsSortBy;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Item;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.ItemRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ItemService {

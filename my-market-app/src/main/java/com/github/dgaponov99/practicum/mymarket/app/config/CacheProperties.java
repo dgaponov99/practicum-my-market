@@ -4,6 +4,8 @@ import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.Duration;
+
 @Getter
 @Configuration
 public class CacheProperties {
@@ -13,5 +15,9 @@ public class CacheProperties {
 
     @Value("${cache.http.image.seconds:120}")
     private long cacheHttpImageSeconds;
+
+    public Duration getCacheRedisDuration() {
+        return Duration.ofSeconds(cacheRedisSeconds);
+    }
 
 }

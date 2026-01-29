@@ -4,7 +4,6 @@ import com.github.dgaponov99.practicum.mymarket.app.client.api.AccountApi;
 import com.github.dgaponov99.practicum.mymarket.app.client.dto.AccountDTO;
 import com.github.dgaponov99.practicum.mymarket.app.client.dto.AmountDTO;
 import com.github.dgaponov99.practicum.mymarket.app.config.CacheProperties;
-import com.github.dgaponov99.practicum.mymarket.app.config.MarketViewProperties;
 import com.github.dgaponov99.practicum.mymarket.app.event.DomainEventBus;
 import com.github.dgaponov99.practicum.mymarket.app.event.ItemChangeEvent;
 import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundException;
@@ -19,8 +18,6 @@ import com.github.dgaponov99.practicum.mymarket.app.service.CartService;
 import com.github.dgaponov99.practicum.mymarket.app.service.ItemImageService;
 import com.github.dgaponov99.practicum.mymarket.app.service.ItemService;
 import com.github.dgaponov99.practicum.mymarket.app.service.OrderService;
-import com.github.dgaponov99.practicum.mymarket.app.web.controller.MarketController;
-import com.github.dgaponov99.practicum.mymarket.app.web.service.MarketViewService;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,13 +25,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
-import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -49,7 +42,6 @@ import java.net.ConnectException;
 import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -69,7 +61,7 @@ public class MarketControllerTest {
     @Autowired
     private CacheProperties cacheProperties;
     @Autowired
-    private CacheManager cacheManager;
+    private ReactiveRedisTemplate<String, Object> redisTemplate;
     @Autowired
     private DomainEventBus domainEventBus;
 
@@ -86,10 +78,9 @@ public class MarketControllerTest {
 
     @BeforeEach
     void setUp() {
-        cacheManager.getCacheNames().stream()
-                .map(cacheManager::getCache)
-                .filter(Objects::nonNull)
-                .forEach(Cache::clear);
+        redisTemplate.execute(connection ->
+                connection.serverCommands().flushDb()
+        ).then().block();
     }
 
     @ParameterizedTest

@@ -3,6 +3,7 @@ package com.github.dgaponov99.practicum.mymarket.app.web.service;
 import com.github.dgaponov99.practicum.mymarket.app.client.api.AccountApi;
 import com.github.dgaponov99.practicum.mymarket.app.client.dto.AccountDTO;
 import com.github.dgaponov99.practicum.mymarket.app.client.dto.AmountDTO;
+import com.github.dgaponov99.practicum.mymarket.app.config.CacheProperties;
 import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.exception.ItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.exception.OrderNotFoundException;
@@ -16,9 +17,10 @@ import com.github.dgaponov99.practicum.mymarket.app.service.OrderService;
 import com.github.dgaponov99.practicum.mymarket.app.web.CartAction;
 import com.github.dgaponov99.practicum.mymarket.app.web.view.*;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.Cacheable;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Flux;
@@ -26,6 +28,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MarketViewService {
@@ -35,13 +38,26 @@ public class MarketViewService {
     private final OrderService orderService;
     private final ItemImageService itemImageService;
     private final AccountApi accountApi;
+    private final ReactiveRedisTemplate<String, Object> redisTemplate;
+    private final CacheProperties cacheProperties;
 
-    @Cacheable(cacheNames = "itemView", key = "#id")
     public Mono<ItemView> getItem(long id) {
-        return Mono.zip(itemService.findById(id),
-                        cartService.countByItemId(id)
+        var cacheKey = "itemView:%d".formatted(id);
+        return redisTemplate.opsForValue()
+                .get(cacheKey)
+                .doOnNext(v -> log.debug("VALUE: {}", v))
+                .switchIfEmpty(Mono.zip(Mono.defer(() -> itemService.findById(id)),
+                                        Mono.defer(() -> cartService.countByItemId(id))
+                                )
+                                .map(tuple -> toItemView(tuple.getT1(), tuple.getT2()))
+                                .flatMap(value -> redisTemplate.opsForValue()
+                                        .set(cacheKey, value, cacheProperties.getCacheRedisDuration())
+                                        .doOnSuccess(v -> log.debug("REDIS SET OK"))
+                                        .doOnError(e -> log.error("REDIS SET FAIL", e))
+                                        .thenReturn(value)
+                                )
                 )
-                .map(tuple -> toItemView(tuple.getT1(), tuple.getT2()));
+                .cast(ItemView.class);
     }
 
     public Flux<DataBuffer> getItemImageResource(long itemId, DataBufferFactory dataBufferFactory) {
@@ -70,30 +86,59 @@ public class MarketViewService {
                         ex -> Mono.just(new EnableBuyView(false, "Невозможно совершить покупку. Сервис платежей временно недоступен.")));
     }
 
-    @Cacheable(cacheNames = "itemsPageView", key = "#searchText + ':' + #pageNumber + ':' + #pageSize + ':' + #sortBy")
     public Mono<ItemsPageView> search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
-        return itemService.searchCount(searchText).flatMap(totalSearchCount ->
-                itemService.search(searchText, pageNumber - 1, pageSize, sortBy)
-                        .flatMap(item -> cartService.countByItemId(item.getId())
-                                .map(itemCartCount -> toItemView(item, itemCartCount))
-                        )
-                        .collectList()
-                        .map(itemViews ->
-                                new ItemsPageView(itemViews,
-                                        toPagingView(pageNumber, pageSize, totalSearchCount, itemViews.size())
-                                )));
+        var cacheKey = "itemsPageView:%s:%d:%d:%s".formatted(searchText, pageNumber, pageSize, sortBy);
+        return redisTemplate.opsForValue()
+                .get(cacheKey)
+                .cast(ItemsPageView.class)
+                .switchIfEmpty(itemService.searchCount(searchText).flatMap(totalSearchCount ->
+                                itemService.search(searchText, pageNumber - 1, pageSize, sortBy)
+                                        .flatMap(item -> cartService.countByItemId(item.getId())
+                                                .map(itemCartCount -> toItemView(item, itemCartCount))
+                                        )
+                                        .collectList()
+                                        .map(itemViews ->
+                                                new ItemsPageView(itemViews,
+                                                        toPagingView(pageNumber, pageSize, totalSearchCount, itemViews.size())
+                                                )))
+                        .flatMap(value -> redisTemplate.opsForValue()
+                                .set(cacheKey, value, cacheProperties.getCacheRedisDuration())
+                                .thenReturn(value)
+                        ));
     }
 
-    @Cacheable(cacheNames = "orderView", key = "#id")
     public Mono<OrderView> getOrder(long id) {
-        return orderService.findById(id)
-                .switchIfEmpty(Mono.error(new OrderNotFoundException(id)))
-                .flatMap(this::flatMapOrderView);
+        var cacheKey = "orderView:%d".formatted(id);
+        return redisTemplate.opsForValue()
+                .get(cacheKey)
+                .cast(OrderView.class)
+                .switchIfEmpty(orderService.findById(id)
+                        .switchIfEmpty(Mono.error(new OrderNotFoundException(id)))
+                        .flatMap(this::flatMapOrderView)
+                        .flatMap(value -> redisTemplate.opsForValue()
+                                .set(cacheKey, value, cacheProperties.getCacheRedisDuration())
+                                .thenReturn(value)
+                        ));
     }
 
-    @Cacheable(cacheNames = "ordersView")
     public Flux<OrderView> getOrders() {
-        return orderService.findAll().flatMap(this::flatMapOrderView);
+        var cacheKey = "ordersView";
+        return redisTemplate.opsForList()
+                .range(cacheKey, 0, -1)
+                .cast(OrderView.class)
+                .switchIfEmpty(orderService.findAll()
+                        .flatMap(this::flatMapOrderView)
+                        .collectList()
+                        .flatMapMany(values -> {
+                            if (values.isEmpty()) {
+                                return Flux.empty();
+                            }
+                            return redisTemplate.opsForList()
+                                    .rightPushAll(cacheKey, values.toArray())
+                                    .then(redisTemplate.expire(cacheKey, cacheProperties.getCacheRedisDuration()))
+                                    .thenMany(Flux.fromIterable(values));
+                        })
+                );
     }
 
     public Mono<Void> cartAction(long itemId, CartAction action) {
