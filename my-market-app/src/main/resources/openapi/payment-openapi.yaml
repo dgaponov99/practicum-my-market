@@ -1,0 +1,184 @@
+openapi: 3.1.0
+info:
+  title: Сервис платежей приложения Витрина магазина
+  version: 1.0.0
+servers:
+  - url: http://localhost:8081
+tags:
+  - name: Account
+    description: Операции над лицевым счетом
+paths:
+  /account:
+    get:
+      operationId: getAccount
+      tags:
+        - Account
+      summary: Получить данные лицевого счета
+      responses:
+        '200':
+          description: Данные лицевого счета
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDTO'
+        '404':
+          description: Лицевой счет не найден
+        '502':
+          description: Ошибка выполнения действия
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDTO'
+    post:
+      tags:
+        - Account
+      operationId: createAccount
+      summary: Создать лицевой счет
+      description: Создает лицевой счет с указанием изначальной суммы баланса
+      parameters:
+        - name: initialBalance
+          in: query
+          description: Сумма изначального баланса на создаваемом счету в копейках
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            default: 0
+      responses:
+        '201':
+          description: Созданный счет
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDTO'
+        '400':
+          description: Ошибка валидации входящих данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorsDTO'
+        '409':
+          description: Счет уже создан
+        '502':
+          description: Ошибка выполнения действия
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDTO'
+  /account/credit:
+    post:
+      tags:
+        - Account
+      operationId: credit
+      summary: Пополнить счет
+      description: Пополняет счет на указанную сумму
+      requestBody:
+        required: true
+        description: Сумма, на которую пополнится счет, в копейках
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AmountDTO'
+      responses:
+        '200':
+          description: Обновленное состояние счета
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDTO'
+        '400':
+          description: Ошибка валидации входящих данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorsDTO'
+        '404':
+          description: Лицевой счет не найден
+        '502':
+          description: Ошибка выполнения действия
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDTO'
+  /account/debit:
+    post:
+      tags:
+        - Account
+      operationId: debit
+      summary: Списать средства со счета
+      description: Списывает средства со счета на указанную сумму
+      requestBody:
+        required: true
+        description: Сумма для списания, в копейках
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AmountDTO'
+      responses:
+        '200':
+          description: Обновленное состояние счета
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDTO'
+        '400':
+          description: Ошибка валидации входящих данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorsDTO'
+        '404':
+          description: Лицевой счет не найден
+        '409':
+          description: Недостаточно средств для списания
+        '502':
+          description: Ошибка выполнения действия
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDTO'
+
+components:
+  schemas:
+    AccountDTO:
+      type: object
+      required:
+        - balance
+      properties:
+        balance:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Баланс счета в копейках
+          examples: [1000000]
+    AmountDTO:
+      type: object
+      required:
+        - amount
+      properties:
+        amount:
+          type: integer
+          format: int64
+          description: Сумма в копейках
+          minimum: 1
+          examples: [1000000]
+    ErrorDTO:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          default: Непредвиденная ошибка
+          description: Описание ошибки
+    ErrorsDTO:
+      type: object
+      required:
+        - errors
+      properties:
+        errors:
+          type: array
+          description: Список ошибок валидации
+          items:
+            type: string
