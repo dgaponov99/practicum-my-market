@@ -2,13 +2,16 @@ package com.github.dgaponov99.practicum.mymarket.payment.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import reactor.core.publisher.Flux;
+
+import java.util.Collection;
+import java.util.Map;
 
 @Configuration
 @EnableWebFluxSecurity
@@ -25,13 +28,15 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    public JwtAuthenticationConverter jwtAuthenticationConverter() {
-        var converter = new JwtGrantedAuthoritiesConverter();
-        converter.setAuthorityPrefix("");
-        converter.setAuthoritiesClaimName("resource_access.backend-service.roles");
-        return new JwtAuthenticationConverter() {{
-            setJwtGrantedAuthoritiesConverter(converter);
-        }};
+    public ReactiveJwtAuthenticationConverter jwtAuthenticationConverter() {
+        var converter = new ReactiveJwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            Map<String, Object> realmAccess = jwt.getClaim("realm_access");
+            if (realmAccess == null) return Flux.empty();
+            return Flux.fromIterable((Collection<String>) realmAccess.get("roles"))
+                    .map(r -> new SimpleGrantedAuthority("ROLE_" + r));
+        });
+        return converter;
     }
 
 }
