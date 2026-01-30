@@ -1,6 +1,7 @@
 package com.github.dgaponov99.practicum.mymarket.payment.module.web;
 
 import com.github.dgaponov99.practicum.mymarket.payment.config.MapstructConfiguration;
+import com.github.dgaponov99.practicum.mymarket.payment.config.SecurityConfiguration;
 import com.github.dgaponov99.practicum.mymarket.payment.exception.AccountAlreadyExistException;
 import com.github.dgaponov99.practicum.mymarket.payment.exception.AccountNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.payment.exception.InsufficientBalanceException;
@@ -16,6 +17,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
@@ -23,7 +25,7 @@ import reactor.core.publisher.Mono;
 import static org.mockito.Mockito.*;
 
 @WebFluxTest(controllers = AccountController.class)
-@Import({MapstructConfiguration.class})
+@Import({MapstructConfiguration.class, SecurityConfiguration.class})
 @ComponentScan(basePackages = "com.github.dgaponov99.practicum.mymarket.payment.web")
 public class AccountControllerTest {
 
@@ -34,6 +36,7 @@ public class AccountControllerTest {
     AccountService accountService;
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void getAccount_success() {
         when(accountService.account()).thenReturn(Mono.just(new Account(1L, 10000L)));
 
@@ -49,6 +52,30 @@ public class AccountControllerTest {
     }
 
     @Test
+    void getAccount_unauthorized() {
+        webTestClient.get()
+                .uri("/account")
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        verify(accountService, never()).account();
+    }
+
+    @Test
+    @WithMockUser
+    void getAccount_forbidden() {
+        webTestClient.get()
+                .uri("/account")
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(accountService, never()).account();
+    }
+
+    @Test
+    @WithMockUser(roles = "PAYMENT")
     void getAccount_notFound() {
         when(accountService.account()).thenReturn(Mono.empty());
 
@@ -65,6 +92,7 @@ public class AccountControllerTest {
     @CsvSource(value = {
             "0", "10000", "null"
     }, nullValues = "null")
+    @WithMockUser(roles = "PAYMENT")
     void createAccount_success(Long initialBalance) {
         var expectBalance = initialBalance == null ? 0L : initialBalance;
         when(accountService.create(anyLong())).thenReturn(Mono.just(new Account(1L, expectBalance)));
@@ -87,6 +115,7 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void createAccount_alreadyExists() {
         when(accountService.create(anyLong())).thenReturn(Mono.error(new AccountAlreadyExistException()));
 
@@ -103,6 +132,7 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void createAccount_notValid() {
         webTestClient.post()
                 .uri(uriBuilder -> uriBuilder
@@ -119,6 +149,7 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void credit_success() {
         when(accountService.credit(anyLong())).thenReturn(Mono.just(new Account(1L, 150000L)));
         webTestClient.post()
@@ -137,6 +168,7 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void credit_notFound() {
         when(accountService.credit(anyLong())).thenReturn(Mono.error(new AccountNotFoundException()));
 
@@ -157,6 +189,7 @@ public class AccountControllerTest {
     @CsvSource(value = {
             "0", "-100", "null"
     }, nullValues = "null")
+    @WithMockUser(roles = "PAYMENT")
     void credit_notValid(Long amount) {
         var jsonBody = amount == null ? "{}" : """
                 { "amount": %d }
@@ -176,6 +209,7 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void debit_success() {
         when(accountService.debit(anyLong())).thenReturn(Mono.just(new Account(1L, 150000L)));
         webTestClient.post()
@@ -194,6 +228,7 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void debit_notFound() {
         when(accountService.debit(anyLong())).thenReturn(Mono.error(new AccountNotFoundException()));
 
@@ -211,6 +246,7 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void debit_insufficientBalance() {
         when(accountService.debit(anyLong())).thenReturn(Mono.error(new InsufficientBalanceException()));
 
@@ -231,6 +267,7 @@ public class AccountControllerTest {
     @CsvSource(value = {
             "0", "-100", "null"
     }, nullValues = "null")
+    @WithMockUser(roles = "PAYMENT")
     void debit_notValid(Long amount) {
         var jsonBody = amount == null ? "{}" : """
                 { "amount": %d }
