@@ -1,15 +1,18 @@
 package com.github.dgaponov99.practicum.mymarket.app;
 
 import com.github.dgaponov99.practicum.mymarket.app.client.api.AccountApi;
+import com.github.dgaponov99.practicum.mymarket.app.client.dto.AccountDTO;
+import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.User;
+import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 
-import java.util.Optional;
+import java.util.stream.Stream;
 
 @Slf4j
 @Component
@@ -17,17 +20,22 @@ import java.util.Optional;
 public class InitUsersComponent {
 
     private final AccountApi accountApi;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
-        Optional.ofNullable(accountApi.getAccountWithHttpInfo(1L))
-                .ifPresent(responseMono -> responseMono
-                        .filter(responseEntity -> responseEntity.getStatusCode().isSameCodeAs(HttpStatusCode.valueOf(200)))
-                        .map(HttpEntity::getBody)
-                        .switchIfEmpty(accountApi.createAccount(10000L)
-                                .doOnNext(account -> log.info("Created default account with id: {}", account.getId())))
-                        .doOnError(ex -> log.warn("Error while creating default account", ex))
-                        .subscribe(account -> log.info("Usage default account with id: {}", account.getId())));
+        userRepository.count()
+                .filter(userCount -> userCount == 0)
+                .flatMapMany(c -> Flux.fromStream(Stream.of("user1", "user2", "user3"))
+                        .flatMap(username -> accountApi.createAccount(10000L)
+                                .map(AccountDTO::getId)
+                                .flatMap(accountId ->
+                                        userRepository.save(new User(null, username, passwordEncoder.encode(username), accountId, false)))))
+                .then()
+                .doOnSuccess(u -> log.info("users has been created"))
+                .doOnError(ex -> log.warn("error while creating users", ex))
+                .subscribe();
     }
 
 }
