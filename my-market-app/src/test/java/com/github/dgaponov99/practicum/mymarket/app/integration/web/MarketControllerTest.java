@@ -31,6 +31,7 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -48,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.csrf;
 import static org.springframework.web.reactive.function.BodyInserters.fromFormData;
 
 @Slf4j
@@ -135,10 +137,12 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void itemCartAction_increment() {
         when(cartService.incrementItem(anyLong())).thenReturn(Mono.empty());
 
-        webTestClient.post()
+        webTestClient.mutateWith(csrf())
+                .post()
                 .uri("/items")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(fromFormData("id", "1")
@@ -155,10 +159,49 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
+    void itemCartAction_noCsrf() {
+        webTestClient
+                .post()
+                .uri("/items")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(fromFormData("id", "1")
+                        .with("action", "PLUS")
+                        .with("search", "core"))
+                .exchange()
+                .expectStatus()
+                .isForbidden();
+
+        verify(cartService, never()).incrementItem(anyLong());
+        verifyNoMoreInteractions(cartService);
+    }
+
+    @Test
+    void itemCartAction_noAuth() {
+        webTestClient.mutateWith(csrf())
+                .post()
+                .uri("/items")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(fromFormData("id", "1")
+                        .with("action", "PLUS")
+                        .with("search", "core"))
+                .exchange()
+                .expectStatus()
+                .is3xxRedirection()
+                .expectHeader()
+                .location("/login");
+
+        verify(cartService, never()).incrementItem(anyLong());
+        verifyNoMoreInteractions(cartService);
+    }
+
+    @Test
+    @WithMockUser
     void itemCartAction_decrement() {
         when(cartService.decrementItem(anyLong())).thenReturn(Mono.empty());
 
-        webTestClient.post()
+        webTestClient.mutateWith(csrf())
+                .post()
                 .uri("/items")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(fromFormData("id", "1")
@@ -175,10 +218,12 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void itemCartAction_decrement_cartItemNotFoundException() {
         when(cartService.decrementItem(anyLong())).thenReturn(Mono.error(new CartItemNotFoundException(1L)));
 
-        webTestClient.post()
+        webTestClient.mutateWith(csrf())
+                .post()
                 .uri("/items")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(fromFormData("id", "1")
@@ -314,10 +359,12 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void item_increment() {
         when(cartService.incrementItem(anyLong())).thenReturn(Mono.empty());
 
-        webTestClient.post()
+        webTestClient.mutateWith(csrf())
+                .post()
                 .uri("/items/{id}", 1)
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(fromFormData("action", "PLUS"))
@@ -332,6 +379,7 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void cart_enableBuy() {
         when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
         //noinspection unchecked
@@ -358,6 +406,7 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void cart_notEnableBuy_insufficientBalance() {
         when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
         //noinspection unchecked
@@ -385,6 +434,7 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void cart_notEnableBuy_paymentServiceRefused() {
         when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
         //noinspection unchecked
@@ -416,10 +466,12 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void cartItemsAction_increment() {
         when(cartService.incrementItem(anyLong())).thenReturn(Mono.empty());
 
-        webTestClient.post()
+        webTestClient.mutateWith(csrf())
+                .post()
                 .uri("/cart/items")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(fromFormData("action", "PLUS")
@@ -435,6 +487,7 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void orders_empty() {
         when(orderService.findAll()).thenReturn(Flux.empty());
 
@@ -451,6 +504,7 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void orders_notEmpty() {
         when(orderService.findAll()).thenReturn(Flux.just(new Order(1L, LocalDateTime.now())));
         when(orderService.getItems(anyLong())).thenReturn(Flux.just(new OrderItem(1L, 1L, 2)));
@@ -471,6 +525,7 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void order_success() {
         when(orderService.findById(anyLong())).thenReturn(Mono.just(new Order(1L, LocalDateTime.now())));
         when(orderService.getItems(anyLong())).thenReturn(Flux.just(new OrderItem(1L, 1L, 2)));
@@ -493,6 +548,7 @@ public class MarketControllerTest {
     }
 
     @Test
+    @WithMockUser
     void buy_success() {
         when(cartService.getCartItems()).thenReturn(Flux.just(new CartItem(1L, 3, false), new CartItem(2L, 2, false)));
         //noinspection unchecked
@@ -503,7 +559,8 @@ public class MarketControllerTest {
         when(orderService.create()).thenReturn(Mono.just(new Order(1L, LocalDateTime.now())));
         when(accountApi.debit(anyLong(), any())).thenReturn(Mono.just(new AccountDTO().id(1L).balance(30000L)));
 
-        webTestClient.post()
+        webTestClient.mutateWith(csrf())
+                .post()
                 .uri("/buy")
                 .exchange()
                 .expectStatus()
