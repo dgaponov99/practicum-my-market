@@ -33,6 +33,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class MarketViewService {
 
+    public static final long defaultAccountId = 1L;
+
     private final ItemService itemService;
     private final CartService cartService;
     private final OrderService orderService;
@@ -73,7 +75,7 @@ public class MarketViewService {
     }
 
     public Mono<EnableBuyView> enableBuy(long cartTotal) {
-        return accountApi.getAccount()
+        return accountApi.getAccount(defaultAccountId)
                 .map(AccountDTO::getBalance)
                 .flatMap(currentBalance -> {
                     if (currentBalance >= cartTotal * 100L) {
@@ -152,11 +154,11 @@ public class MarketViewService {
         return getCartItems().collectList()
                 .map(this::calculateTotalPrice)
                 .flatMap(total ->
-                        accountApi.debit(new AmountDTO().amount(total * 100))
+                        accountApi.debit(defaultAccountId, new AmountDTO().amount(total * 100))
                                 .then(orderService.create()
                                         .map(Order::getId)
                                         .onErrorResume(ex ->
-                                                accountApi.credit(new AmountDTO().amount(total * 100))
+                                                accountApi.credit(defaultAccountId, new AmountDTO().amount(total * 100))
                                                         .then(Mono.error(ex))
                                         )
                                 )

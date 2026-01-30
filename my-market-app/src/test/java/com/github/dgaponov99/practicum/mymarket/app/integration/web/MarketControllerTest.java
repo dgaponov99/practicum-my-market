@@ -31,6 +31,7 @@ import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
@@ -50,10 +51,11 @@ import static org.mockito.Mockito.*;
 import static org.springframework.web.reactive.function.BodyInserters.fromFormData;
 
 @Slf4j
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
 @Testcontainers
 @ImportTestcontainers({RedisTestcontainer.class, PostgreSQLTestcontainer.class})
+@ActiveProfiles("test")
 public class MarketControllerTest {
 
     @Autowired
@@ -337,7 +339,7 @@ public class MarketControllerTest {
                 Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
                 Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
         );
-        when(accountApi.getAccount()).thenReturn(Mono.just(new AccountDTO().balance(1000000L)));
+        when(accountApi.getAccount(anyLong())).thenReturn(Mono.just(new AccountDTO().id(1L).balance(1000000L)));
 
         webTestClient.get()
                 .uri("/cart/items")
@@ -351,7 +353,7 @@ public class MarketControllerTest {
 
         verify(cartService, times(1)).getCartItems();
         verify(itemService, times(2)).findById(anyLong());
-        verify(accountApi, times(1)).getAccount();
+        verify(accountApi, times(1)).getAccount(1L);
         verifyNoMoreInteractions(itemService, cartService);
     }
 
@@ -363,7 +365,7 @@ public class MarketControllerTest {
                 Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
                 Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
         );
-        when(accountApi.getAccount()).thenReturn(Mono.just(new AccountDTO().balance(500000L)));
+        when(accountApi.getAccount(anyLong())).thenReturn(Mono.just(new AccountDTO().id(1L).balance(500000L)));
 
         webTestClient.get()
                 .uri("/cart/items")
@@ -378,7 +380,7 @@ public class MarketControllerTest {
 
         verify(cartService, times(1)).getCartItems();
         verify(itemService, times(2)).findById(anyLong());
-        verify(accountApi, times(1)).getAccount();
+        verify(accountApi, times(1)).getAccount(1L);
         verifyNoMoreInteractions(itemService, cartService);
     }
 
@@ -390,7 +392,7 @@ public class MarketControllerTest {
                 Mono.just(new Item(1L, "Intel Core i7", "Intel Core i7 4th gen", 2300, false)),
                 Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
         );
-        when(accountApi.getAccount()).thenReturn(Mono.error(new WebClientRequestException(
+        when(accountApi.getAccount(anyLong())).thenReturn(Mono.error(new WebClientRequestException(
                 new ConnectException("Connection refused"),
                 HttpMethod.POST,
                 URI.create("http://payment"),
@@ -409,7 +411,7 @@ public class MarketControllerTest {
 
         verify(cartService, times(1)).getCartItems();
         verify(itemService, times(2)).findById(anyLong());
-        verify(accountApi, times(1)).getAccount();
+        verify(accountApi, times(1)).getAccount(1L);
         verifyNoMoreInteractions(itemService, cartService, accountApi);
     }
 
@@ -499,7 +501,7 @@ public class MarketControllerTest {
                 Mono.just(new Item(2L, "Intel Core i7", "Intel Core i7", 1300, false))
         );
         when(orderService.create()).thenReturn(Mono.just(new Order(1L, LocalDateTime.now())));
-        when(accountApi.debit(any())).thenReturn(Mono.just(new AccountDTO().balance(30000L)));
+        when(accountApi.debit(anyLong(), any())).thenReturn(Mono.just(new AccountDTO().id(1L).balance(30000L)));
 
         webTestClient.post()
                 .uri("/buy")
@@ -512,7 +514,7 @@ public class MarketControllerTest {
         verify(cartService, times(1)).getCartItems();
         verify(itemService, times(2)).findById(anyLong());
         verify(orderService, times(1)).create();
-        verify(accountApi, times(1)).debit(new AmountDTO().amount(950000L));
+        verify(accountApi, times(1)).debit(1L, new AmountDTO().amount(950000L));
         verifyNoMoreInteractions(orderService, cartService, itemService, accountApi);
     }
 

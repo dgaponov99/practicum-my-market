@@ -6,13 +6,13 @@ import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.integration.spring.SpringLiquibase;
 import liquibase.integration.spring.SpringResourceAccessor;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.context.ImportTestcontainers;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest
 @Testcontainers
 @ImportTestcontainers(PostgreSQLTestcontainer.class)
 public abstract class ServiceIT {
@@ -20,8 +20,8 @@ public abstract class ServiceIT {
     @Autowired
     SpringLiquibase springLiquibase;
 
-    @BeforeEach
-    void setup() throws Exception {
+    @AfterEach
+    void clean() throws Exception {
         try (var liquibase = createLiquibase()) {
             liquibase.dropAll();
             liquibase.update();
