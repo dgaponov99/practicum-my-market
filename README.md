@@ -8,8 +8,24 @@
 - jdk 21
 - docker engine
 
+### Настройка keycloak:
+- Создать realms `my-market`
+- Создать глобальную роль в realm: `PAYMENT`
+- Создать клиентов:
+  - `app` - основное приложение
+    - `Client authentification`
+    - `Standart flow`
+    - `Service accounts roles`
+    - Root URL: `http://localhost:80`
+    - Home URL: `http://localhost:80`
+    - Service accounts roles: `PAYMENT`
+  - `payment-service` - сервис платежей
+    - `Client authentification`
+    - `Standart flow`
+
 ### Настройка окружения
 - Указать данные для подключения к реляционной базе данных в `application.properties` или в переменных окружения
+- Указать client-secret для основного приложения
 
 ### Запуск тестов (модульные):
 - Вызов `mvnw clean test`

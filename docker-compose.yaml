@@ -59,6 +59,7 @@ services:
       - SPRING_LIQUIBASE_URL=jdbc:postgresql://postgres:5432/practicum_my_market
       - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_ISSUER-URI=http://keycloak:8180/realms/my-market
       - SPRING.DATA.REDIS.HOST=redis
+      - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT-SECRET=<CHANGE_ME>
     ports:
       - "80:80"
     depends_on:
