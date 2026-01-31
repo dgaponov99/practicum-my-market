@@ -19,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.security.access.prepost.PostAuthorize;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Flux;
@@ -62,11 +64,13 @@ public class MarketViewService {
         return itemImageService.getImage(itemId, dataBufferFactory);
     }
 
+    @PreAuthorize("authentication.principal.userId == #userId")
     public Mono<Map<Long, Integer>> getUserCartItems(long userId) {
         return cartService.getCartItems(userId)
                 .collectMap(CartItem::getItemId, CartItem::getCount);
     }
 
+    @PreAuthorize("authentication.principal.userId == #userId")
     public Mono<CartPageView> getCartPageView(long userId) {
         return cartService.getCartItems(userId)
                 .flatMap(cartItem ->
@@ -77,6 +81,7 @@ public class MarketViewService {
                 .map(cartItemTuples -> marketViewMapper.toCartPageView(userId, cartItemTuples));
     }
 
+    @PreAuthorize("authentication.principal.userId == #userId")
     public Mono<EnableBuyView> enableBuy(long userId, long cartTotal) {
         return userService.findById(userId).flatMap(user -> accountApi.getAccount(user.getAccountId())
                 .map(AccountDTO::getBalance)
@@ -109,6 +114,7 @@ public class MarketViewService {
                         ));
     }
 
+    @PostAuthorize("returnObject?.userId == authentication.principal.userId")
     public Mono<OrderPageView> getOrder(long id) {
         var cacheKey = "orderView:%d".formatted(id);
         return redisTemplate.opsForValue()
@@ -127,11 +133,13 @@ public class MarketViewService {
                         ));
     }
 
+    @PreAuthorize("authentication.principal.userId == #userId")
     public Flux<OrderPageView> getOrders(long userId) {
         return orderService.findIdsByUserId(userId)
                 .flatMap(this::getOrder);
     }
 
+    @PreAuthorize("authentication.principal.userId == #userId")
     public Mono<Void> cartAction(long userId, long itemId, CartAction action) {
         return switch (action) {
             case PLUS -> cartService.incrementItem(userId, itemId);
@@ -139,6 +147,7 @@ public class MarketViewService {
         };
     }
 
+    @PreAuthorize("authentication.principal.userId == #userId")
     public Mono<Long> buy(long userId) {
         return userService.findById(userId).flatMap(user -> getCartPageView(userId)
                 .map(CartPageView::getTotalPrice)

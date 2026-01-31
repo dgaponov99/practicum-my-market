@@ -605,6 +605,29 @@ public class MarketControllerTest {
     }
 
     @Test
+    void order_otherUser() {
+        when(orderService.findById(anyLong())).thenReturn(Mono.just(new Order(1L, 2L, LocalDateTime.now())));
+        when(orderService.getItems(anyLong())).thenReturn(Flux.just(new OrderItem(1L, 1L, 2, 10_000)));
+        when(itemService.findById(anyLong())).thenReturn(Mono.just(new Item(1L, "Товар", "Описание товара", 10_000, false)));
+
+        webTestClient.mutateWith(mockUser(new IdentityUserDetails(1, "user", "password")))
+                .get()
+                .uri("/orders/{id}", 1L)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .contentTypeCompatibleWith(MediaType.TEXT_HTML)
+                .expectBody(String.class)
+                .value(html -> assertTrue(html.contains("Упс, что-то пошло не так...")));
+
+        verify(orderService, times(1)).findById(1L);
+        verify(orderService, times(1)).getItems(1L);
+        verify(itemService, times(1)).findById(1L);
+        verifyNoMoreInteractions(orderService, itemService);
+    }
+
+    @Test
     void buy_success() {
         when(cartService.getCartItems(anyLong())).thenReturn(Flux.just(new CartItem(1L, 1L, 3), new CartItem(1L, 2L, 2)));
         //noinspection unchecked
