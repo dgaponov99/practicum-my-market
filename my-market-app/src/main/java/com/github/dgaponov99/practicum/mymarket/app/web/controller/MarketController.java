@@ -31,7 +31,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.util.Set;
+import java.util.HashSet;
+import java.util.List;
 
 @Controller
 @RequiredArgsConstructor
@@ -167,7 +168,8 @@ public class MarketController {
     }
 
     private Rendering redirect(String redirectUrl, MultiValueMap<String, String> queryParams, MultiValueMap<String, String> formData, String... excludeParams) {
-        var excludeParamsSet = Set.of(excludeParams);
+        var excludeParamsSet = new HashSet<>(List.of(excludeParams));
+        excludeParamsSet.add("_csrf");
 
         var uriBuilder = UriComponentsBuilder.fromUriString(redirectUrl);
         queryParams.forEach((key, value) -> {

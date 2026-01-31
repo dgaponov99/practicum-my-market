@@ -47,6 +47,7 @@ public class SecurityConfiguration {
                         .logoutUrl("/logout")
                         .logoutSuccessHandler(redirectServerLogoutSuccessHandler)
                 )
+                .anonymous(Customizer.withDefaults())
                 .oauth2Client(Customizer.withDefaults())
                 .build();
     }
