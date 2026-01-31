@@ -3,9 +3,12 @@ package com.github.dgaponov99.practicum.mymarket.app.integration.service;
 import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.CartItem;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Item;
+import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.User;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.CartItemRepository;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.ItemRepository;
+import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.UserRepository;
 import com.github.dgaponov99.practicum.mymarket.app.service.CartService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import reactor.test.StepVerifier;
@@ -21,23 +24,31 @@ public class CartServiceIT extends ServiceIT {
     ItemRepository itemRepository;
     @Autowired
     CartItemRepository cartItemRepository;
+    @Autowired
+    private UserRepository userRepository;
+
+    @BeforeEach
+    void setUp() {
+        userRepository.findById(1L).switchIfEmpty(userRepository.save(new User(null, "user", "password", 1L, false))).block();
+    }
 
     @Test
     void getCartItems_success() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
                 .flatMap((createdItem) -> {
-                    var cartItem = new CartItem(createdItem.getId(), 2, true);
+                    var cartItem = new CartItem(1L, createdItem.getId(), 2);
                     return cartItemRepository.save(cartItem);
                 })
                 .then();
 
-        setupData.thenMany(cartService.getCartItems())
+        setupData.thenMany(cartService.getCartItems(1L))
                 .collectList()
                 .doOnNext(cartItems -> assertThat(cartItems)
                         .hasSize(1)
                         .first()
                         .satisfies(actualCartItem -> {
+                            assertThat(actualCartItem.getUserId()).isEqualTo(1L);
                             assertThat(actualCartItem.getItemId()).isEqualTo(item.getId());
                             assertThat(actualCartItem.getCount()).isEqualTo(2);
                         })
@@ -51,7 +62,7 @@ public class CartServiceIT extends ServiceIT {
         var setupData = itemRepository.save(item)
                 .then();
 
-        setupData.thenMany(cartService.getCartItems())
+        setupData.thenMany(cartService.getCartItems(1L))
                 .collectList()
                 .doOnNext(cartItems -> assertThat(cartItems).isEmpty())
                 .block();
@@ -61,11 +72,11 @@ public class CartServiceIT extends ServiceIT {
     void countByItemId_success() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
-                .then(cartItemRepository.save(new CartItem(item.getId(), 2, true)))
+                .then(cartItemRepository.save(new CartItem(1L, item.getId(), 2)))
                 .then();
 
-        setupData.then(cartService.countByItemId(item.getId()))
-                .doOnNext(countBYItemId -> assertThat(countBYItemId).isEqualTo(2))
+        setupData.then(cartService.countByItemId(1L, item.getId()))
+                .doOnNext(countByItemId -> assertThat(countByItemId).isEqualTo(2))
                 .block();
     }
 
@@ -73,10 +84,10 @@ public class CartServiceIT extends ServiceIT {
     void countByItemId_empty() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
-                .then(cartItemRepository.save(new CartItem(item.getId(), 2, true)))
+                .then(cartItemRepository.save(new CartItem(1L, item.getId(), 2)))
                 .then();
 
-        setupData.then(cartService.countByItemId(100500L))
+        setupData.then(cartService.countByItemId(1L, 100500L))
                 .doOnNext(countByItemId -> assertThat(countByItemId).isEqualTo(0))
                 .block();
     }
@@ -87,8 +98,8 @@ public class CartServiceIT extends ServiceIT {
         var setupData = itemRepository.save(item)
                 .then();
 
-        setupData.then(cartService.incrementItem(item.getId()))
-                .then(cartItemRepository.findById(item.getId()))
+        setupData.then(cartService.incrementItem(1L, item.getId()))
+                .then(cartItemRepository.findByUserIdAndItemId(1L, item.getId()))
                 .doOnNext(cartItem -> assertThat(cartItem)
                         .isNotNull()
                         .extracting(CartItem::getCount).isEqualTo(1))
@@ -99,11 +110,11 @@ public class CartServiceIT extends ServiceIT {
     void incrementItem_itemInCart() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
-                .flatMap(createdItem -> cartItemRepository.save(new CartItem(createdItem.getId(), 2, true)))
+                .flatMap(createdItem -> cartItemRepository.save(new CartItem(1L, createdItem.getId(), 2)))
                 .then();
 
-        setupData.then(cartService.incrementItem(item.getId()))
-                .then(cartItemRepository.findById(item.getId()))
+        setupData.then(cartService.incrementItem(1L, item.getId()))
+                .then(cartItemRepository.findByUserIdAndItemId(1L, item.getId()))
                 .doOnNext(cartItem -> assertThat(cartItem)
                         .isNotNull()
                         .extracting(CartItem::getCount).isEqualTo(3))
@@ -114,11 +125,11 @@ public class CartServiceIT extends ServiceIT {
     void decrementItem_itemInCart() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
-                .flatMap(createdItem -> cartItemRepository.save(new CartItem(createdItem.getId(), 2, true)))
+                .flatMap(createdItem -> cartItemRepository.save(new CartItem(1L, createdItem.getId(), 2)))
                 .then();
 
-        setupData.then(cartService.decrementItem(item.getId()))
-                .then(cartItemRepository.findById(item.getId()))
+        setupData.then(cartService.decrementItem(1L, item.getId()))
+                .then(cartItemRepository.findByUserIdAndItemId(1L, item.getId()))
                 .doOnNext(cartItem -> assertThat(cartItem)
                         .isNotNull()
                         .extracting(CartItem::getCount).isEqualTo(1))
@@ -129,11 +140,11 @@ public class CartServiceIT extends ServiceIT {
     void decrementItem_lastItemInCart() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
-                .flatMap(createdItem -> cartItemRepository.save(new CartItem(createdItem.getId(), 1, true)))
+                .flatMap(createdItem -> cartItemRepository.save(new CartItem(1L, createdItem.getId(), 1)))
                 .then();
 
-        setupData.then(cartService.decrementItem(item.getId()))
-                .then(cartItemRepository.findById(item.getId()))
+        setupData.then(cartService.decrementItem(1L, item.getId()))
+                .then(cartItemRepository.findByUserIdAndItemId(1L, item.getId()))
                 .doOnNext(cartItem -> assertThat(cartItem).isNull())
                 .block();
     }
@@ -142,10 +153,10 @@ public class CartServiceIT extends ServiceIT {
     void decrementItem_noItemInCart() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
-                .flatMap(createdItem -> cartItemRepository.save(new CartItem(createdItem.getId(), 1, true)))
+                .flatMap(createdItem -> cartItemRepository.save(new CartItem(1L, createdItem.getId(), 1)))
                 .then();
 
-        StepVerifier.create(setupData.then(cartService.decrementItem(100500L)))
+        StepVerifier.create(setupData.then(cartService.decrementItem(1L, 100500L)))
                 .expectError(CartItemNotFoundException.class)
                 .verify();
     }

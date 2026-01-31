@@ -1,14 +1,13 @@
 package com.github.dgaponov99.practicum.mymarket.app.config;
 
-import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationTrustResolver;
+import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
-import org.springframework.security.core.userdetails.ReactiveUserDetailsService;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
@@ -50,7 +49,6 @@ public class SecurityConfiguration {
                 .build();
     }
 
-    // Защищаем пароли шифрованием
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -61,17 +59,6 @@ public class SecurityConfiguration {
         return new WebSessionServerCsrfTokenRepository();
     }
 
-    @Bean
-    public ReactiveUserDetailsService userDetailsService(UserRepository userRepository) {
-        return username -> userRepository.findByUsername(username)
-                .map(user -> User.builder()
-                        .username(user.getUsername())
-                        .password(user.getPassword())
-                        .roles("USER")
-                        .disabled(user.isDisabled())
-                        .build());
-    }
-
     // Настраиваем поведение при выходе
     @Bean
     public RedirectServerLogoutSuccessHandler redirectServerLogoutSuccessHandler() {
@@ -79,6 +66,11 @@ public class SecurityConfiguration {
         // При выходе перенаправляем его на домашнюю страницу
         logoutSuccessHandler.setLogoutSuccessUrl(URI.create("/"));
         return logoutSuccessHandler;
+    }
+
+    @Bean
+    public AuthenticationTrustResolver authenticationTrustResolver() {
+        return new AuthenticationTrustResolverImpl();
     }
 
 }

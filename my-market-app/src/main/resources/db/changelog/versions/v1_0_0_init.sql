@@ -40,3 +40,24 @@ create table users
     account_id bigint       not null,
     disabled   boolean      not null default false
 );
+
+-- changeset dgaponov99:003-userCarts
+drop table cart_item;
+truncate table orders cascade;
+
+create table cart_item
+(
+    id      bigserial primary key,
+    user_id bigint  not null references users,
+    item_id bigint  not null references item,
+    count   integer not null,
+
+    unique (user_id, item_id)
+);
+
+alter table orders
+    add column user_id bigint not null references users;
+
+alter table order_item
+    add column unit_price bigint not null;
+

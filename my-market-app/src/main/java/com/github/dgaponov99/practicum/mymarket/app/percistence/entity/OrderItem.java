@@ -5,6 +5,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
 @Getter
@@ -16,13 +17,18 @@ public class OrderItem {
 
     @Id
     private Long id;
-    private Long orderId;
-    private Long itemId;
+    @Column("order_id")
+    private long orderId;
+    @Column("item_id")
+    private long itemId;
     private int count;
+    @Column("unit_price")
+    private long unitPrice;
 
-    public OrderItem(long orderId, long itemId, int count) {
+    public OrderItem(long orderId, long itemId, int count, long unitPrice) {
         this.orderId = orderId;
         this.itemId = itemId;
         this.count = count;
+        this.unitPrice = unitPrice;
     }
 }
