@@ -9,22 +9,17 @@ import org.springframework.data.relational.core.mapping.Table;
 @Setter
 @ToString
 @NoArgsConstructor
-@Table("cart_item")
-public class CartItem {
+@AllArgsConstructor
+@Table("users")
+public class User {
 
     @Id
+    @Column("user_id")
     private Long id;
 
-    @Column("user_id")
-    private long userId;
-    @Column("item_id")
-    private long itemId;
-
-    private int count;
-
-    public  CartItem(long userId, long itemId, int count) {
-        this.userId = userId;
-        this.itemId = itemId;
-        this.count = count;
-    }
+    private String username;
+    private String password;
+    @Column("account_id")
+    private long accountId;
+    private boolean disabled;
 }

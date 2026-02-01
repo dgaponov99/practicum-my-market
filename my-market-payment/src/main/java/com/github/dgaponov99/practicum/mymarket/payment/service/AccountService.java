@@ -1,6 +1,5 @@
 package com.github.dgaponov99.practicum.mymarket.payment.service;
 
-import com.github.dgaponov99.practicum.mymarket.payment.exception.AccountAlreadyExistException;
 import com.github.dgaponov99.practicum.mymarket.payment.exception.AccountNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.payment.exception.InsufficientBalanceException;
 import com.github.dgaponov99.practicum.mymarket.payment.persistence.entity.Account;
@@ -16,20 +15,15 @@ public class AccountService {
     private final AccountRepository accountRepository;
 
     public Mono<Account> create(long initialBalance) {
-        return account()
-                .hasElement()
-                .flatMap(exist -> exist
-                        ? Mono.error(new AccountAlreadyExistException())
-                        : accountRepository.save(new Account(null, initialBalance))
-                );
+        return accountRepository.save(new Account(null, initialBalance));
     }
 
-    public Mono<Account> account() {
-        return accountRepository.findAll().next();
+    public Mono<Account> account(long id) {
+        return accountRepository.findById(id);
     }
 
-    public Mono<Account> credit(long amount) {
-        return account()
+    public Mono<Account> credit(long id, long amount) {
+        return account(id)
                 .switchIfEmpty(Mono.error(new AccountNotFoundException()))
                 .flatMap(account -> {
                     account.setBalance(account.getBalance() + amount);
@@ -37,8 +31,8 @@ public class AccountService {
                 });
     }
 
-    public Mono<Account> debit(long amount) {
-        return account()
+    public Mono<Account> debit(long id, long amount) {
+        return account(id)
                 .switchIfEmpty(Mono.error(new AccountNotFoundException()))
                 .flatMap(account -> {
                     if (account.getBalance() < amount) {

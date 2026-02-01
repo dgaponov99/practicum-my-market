@@ -59,16 +59,14 @@ public class WebCacheManager {
         domainEventBus.listen(OrderChangeEvent.class)
                 .subscribe(event -> {
                             log.debug("new order event: {}", event);
-                            redisTemplate.scan(ScanOptions.scanOptions().match("ordersView:*").build())
-                                    .flatMap(redisTemplate::delete)
-                                    .then(Mono.defer(() -> {
+                            Mono.defer(() -> {
                                         if (event.id() > 0) {
                                             return redisTemplate.delete("orderView:%d".formatted(event.id()));
                                         } else {
                                             return redisTemplate.scan(ScanOptions.scanOptions().match("orderView:*").build())
                                                     .flatMap(redisTemplate::delete).then();
                                         }
-                                    }))
+                                    })
                                     .subscribe();
                         }
                 );

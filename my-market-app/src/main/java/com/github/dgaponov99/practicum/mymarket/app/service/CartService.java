@@ -20,33 +20,33 @@ public class CartService {
     private final ItemRepository itemRepository;
     private final DomainEventBus domainEventBus;
 
-    public Mono<Integer> countByItemId(long itemId) {
-        return cartItemRepository.findById(itemId)
+    public Mono<Integer> countByItemId(long userId, long itemId) {
+        return cartItemRepository.findByUserIdAndItemId(userId, itemId)
                 .map(CartItem::getCount)
                 .switchIfEmpty(Mono.just(0));
     }
 
-    public Flux<CartItem> getCartItems() {
-        return cartItemRepository.findAll();
+    public Flux<CartItem> getCartItems(long userId) {
+        return cartItemRepository.findAllByUserId(userId);
     }
 
-    public Mono<Void> incrementItem(long itemId) {
-        return cartItemRepository.findById(itemId)
+    public Mono<Void> incrementItem(long userId, long itemId) {
+        return cartItemRepository.findByUserIdAndItemId(userId, itemId)
                 .switchIfEmpty(itemRepository.findById(itemId)
                         .switchIfEmpty(Mono.error(new ItemNotFoundException(itemId)))
-                        .map(item -> new CartItem(item.getId(), 0, true))
+                        .map(item -> new CartItem(userId, item.getId(), 0))
                 ).map(cartItem -> {
                     cartItem.setCount(cartItem.getCount() + 1);
                     return cartItem;
                 })
                 .flatMap(cartItemRepository::save)
-                .doOnSuccess(cartItem -> domainEventBus.publish(new CartItemChangeEvent(cartItem.getItemId())))
+                .doOnSuccess(cartItem -> domainEventBus.publish(new CartItemChangeEvent(userId, cartItem.getItemId())))
                 .then();
     }
 
-    public Mono<Void> decrementItem(long itemId) {
-        return cartItemRepository.findById(itemId)
-                .switchIfEmpty(Mono.error(new CartItemNotFoundException(itemId)))
+    public Mono<Void> decrementItem(long userId, long itemId) {
+        return cartItemRepository.findByUserIdAndItemId(userId, itemId)
+                .switchIfEmpty(Mono.error(new CartItemNotFoundException(userId, itemId)))
                 .map(cartItem -> {
                     cartItem.setCount(cartItem.getCount() - 1);
                     return cartItem;
@@ -58,7 +58,11 @@ public class CartService {
                         return cartItemRepository.save(cartItem).then();
                     }
                 })
-                .doOnSuccess(cartItem -> domainEventBus.publish(new CartItemChangeEvent(itemId)));
+                .doOnSuccess(cartItem -> domainEventBus.publish(new CartItemChangeEvent(userId, itemId)));
+    }
+
+    public Mono<Void> deleteCart(long userId) {
+        return cartItemRepository.deleteCartItemsByUserId(userId);
     }
 
 }

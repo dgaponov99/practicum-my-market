@@ -32,12 +32,12 @@
                             <span class="badge text-bg-success justify-content-end" th:text="${item.getPrice()}+' руб.'"></span>
                         </h5>
                         <p class="card-text" th:text="${item.getDescription()}"></p>
-                        <form th:action="@{${'/items/'+item.getId()}}" method="post">
+                        <form th:action="@{${'/items/'+item.getId()}}" method="post" th:if="${userCartItems != null}">
                             <div class="hstack gap-3">
                                 <button type="submit" class="btn btn-outline-secondary" name="action" value="MINUS">-</button>
-                                <span th:text="${item.getCount()}"></span>
+                                <span th:text="${userCartItems.getOrDefault(item.getId(), 0)}"></span>
                                 <button type="submit" class="btn btn-outline-secondary" name="action" value="PLUS">+</button>
-                                <button type="submit" class="btn btn-warning ms-auto bi bi-cart4" name="action" value="PLUS" th:if="${item.getCount()==0}"></button>
+                                <button type="submit" class="btn btn-warning ms-auto bi bi-cart4" name="action" value="PLUS" th:if="${userCartItems.get(item.getId()) == null}"></button>
                             </div>
                         </form>
                     </div>

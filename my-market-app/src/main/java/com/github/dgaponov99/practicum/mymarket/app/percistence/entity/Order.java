@@ -18,6 +18,8 @@ public class Order {
     @Id
     @Column("order_id")
     private Long id;
+    @Column("user_id")
+    private long userId;
 
     private LocalDateTime orderDate;
 }

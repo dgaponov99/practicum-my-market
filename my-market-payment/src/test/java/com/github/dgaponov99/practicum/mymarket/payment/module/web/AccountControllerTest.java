@@ -1,7 +1,7 @@
 package com.github.dgaponov99.practicum.mymarket.payment.module.web;
 
 import com.github.dgaponov99.practicum.mymarket.payment.config.MapstructConfiguration;
-import com.github.dgaponov99.practicum.mymarket.payment.exception.AccountAlreadyExistException;
+import com.github.dgaponov99.practicum.mymarket.payment.config.SecurityConfiguration;
 import com.github.dgaponov99.practicum.mymarket.payment.exception.AccountNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.payment.exception.InsufficientBalanceException;
 import com.github.dgaponov99.practicum.mymarket.payment.persistence.entity.Account;
@@ -16,6 +16,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
@@ -23,7 +24,7 @@ import reactor.core.publisher.Mono;
 import static org.mockito.Mockito.*;
 
 @WebFluxTest(controllers = AccountController.class)
-@Import({MapstructConfiguration.class})
+@Import({MapstructConfiguration.class, SecurityConfiguration.class})
 @ComponentScan(basePackages = "com.github.dgaponov99.practicum.mymarket.payment.web")
 public class AccountControllerTest {
 
@@ -34,37 +35,63 @@ public class AccountControllerTest {
     AccountService accountService;
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void getAccount_success() {
-        when(accountService.account()).thenReturn(Mono.just(new Account(1L, 10000L)));
+        when(accountService.account(anyLong())).thenReturn(Mono.just(new Account(1L, 10000L)));
 
         webTestClient.get()
-                .uri("/account")
+                .uri("/account/{accountId}", 1L)
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.balance").isEqualTo(10000L);
 
-        verify(accountService, times(1)).account();
+        verify(accountService, times(1)).account(1L);
     }
 
     @Test
+    void getAccount_unauthorized() {
+        webTestClient.get()
+                .uri("/account/{accountId}", 1L)
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        verify(accountService, never()).account(anyLong());
+    }
+
+    @Test
+    @WithMockUser
+    void getAccount_forbidden() {
+        webTestClient.get()
+                .uri("/account/{accountId}", 1L)
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isForbidden();
+
+        verify(accountService, never()).account(anyLong());
+    }
+
+    @Test
+    @WithMockUser(roles = "PAYMENT")
     void getAccount_notFound() {
-        when(accountService.account()).thenReturn(Mono.empty());
+        when(accountService.account(anyLong())).thenReturn(Mono.empty());
 
         webTestClient.get()
-                .uri("/account")
+                .uri("/account/{accountId}", 100500L)
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isNotFound();
 
-        verify(accountService, times(1)).account();
+        verify(accountService, times(1)).account(100500L);
     }
 
     @ParameterizedTest
     @CsvSource(value = {
             "0", "10000", "null"
     }, nullValues = "null")
+    @WithMockUser(roles = "PAYMENT")
     void createAccount_success(Long initialBalance) {
         var expectBalance = initialBalance == null ? 0L : initialBalance;
         when(accountService.create(anyLong())).thenReturn(Mono.just(new Account(1L, expectBalance)));
@@ -87,22 +114,7 @@ public class AccountControllerTest {
     }
 
     @Test
-    void createAccount_alreadyExists() {
-        when(accountService.create(anyLong())).thenReturn(Mono.error(new AccountAlreadyExistException()));
-
-        webTestClient.post()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/account")
-                        .queryParam("initialBalance", 10000L)
-                        .build())
-                .accept(MediaType.APPLICATION_JSON)
-                .exchange()
-                .expectStatus().isEqualTo(HttpStatus.CONFLICT);
-
-        verify(accountService, times(1)).create(10000L);
-    }
-
-    @Test
+    @WithMockUser(roles = "PAYMENT")
     void createAccount_notValid() {
         webTestClient.post()
                 .uri(uriBuilder -> uriBuilder
@@ -119,10 +131,11 @@ public class AccountControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void credit_success() {
-        when(accountService.credit(anyLong())).thenReturn(Mono.just(new Account(1L, 150000L)));
+        when(accountService.credit(anyLong(), anyLong())).thenReturn(Mono.just(new Account(1L, 150000L)));
         webTestClient.post()
-                .uri("/account/credit")
+                .uri("/account/{accountId}/credit", 1L)
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
@@ -133,15 +146,16 @@ public class AccountControllerTest {
                 .expectBody()
                 .jsonPath("$.balance").isEqualTo(150000L);
 
-        verify(accountService, times(1)).credit(50000L);
+        verify(accountService, times(1)).credit(1L, 50000L);
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void credit_notFound() {
-        when(accountService.credit(anyLong())).thenReturn(Mono.error(new AccountNotFoundException()));
+        when(accountService.credit(anyLong(), anyLong())).thenReturn(Mono.error(new AccountNotFoundException()));
 
         webTestClient.post()
-                .uri("/account/credit")
+                .uri("/account/{accountId}/credit", 100500L)
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
@@ -150,20 +164,21 @@ public class AccountControllerTest {
                 .exchange()
                 .expectStatus().isNotFound();
 
-        verify(accountService, times(1)).credit(50000L);
+        verify(accountService, times(1)).credit(100500L, 50000L);
     }
 
     @ParameterizedTest
     @CsvSource(value = {
             "0", "-100", "null"
     }, nullValues = "null")
+    @WithMockUser(roles = "PAYMENT")
     void credit_notValid(Long amount) {
         var jsonBody = amount == null ? "{}" : """
                 { "amount": %d }
                 """.formatted(amount);
 
         webTestClient.post()
-                .uri("/account/credit")
+                .uri("/account/{accountId}/credit", 1L)
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(jsonBody)
@@ -172,14 +187,15 @@ public class AccountControllerTest {
                 .expectBody()
                 .jsonPath("$.errors").isNotEmpty();
 
-        verify(accountService, never()).credit(anyLong());
+        verify(accountService, never()).credit(anyLong(), anyLong());
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void debit_success() {
-        when(accountService.debit(anyLong())).thenReturn(Mono.just(new Account(1L, 150000L)));
+        when(accountService.debit(anyLong(), anyLong())).thenReturn(Mono.just(new Account(1L, 150000L)));
         webTestClient.post()
-                .uri("/account/debit")
+                .uri("/account/{accountId}/debit", 1L)
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
@@ -190,15 +206,16 @@ public class AccountControllerTest {
                 .expectBody()
                 .jsonPath("$.balance").isEqualTo(150000L);
 
-        verify(accountService, times(1)).debit(50000L);
+        verify(accountService, times(1)).debit(1L, 50000L);
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void debit_notFound() {
-        when(accountService.debit(anyLong())).thenReturn(Mono.error(new AccountNotFoundException()));
+        when(accountService.debit(anyLong(), anyLong())).thenReturn(Mono.error(new AccountNotFoundException()));
 
         webTestClient.post()
-                .uri("/account/debit")
+                .uri("/account/{accountId}/debit", 1L)
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
@@ -207,15 +224,16 @@ public class AccountControllerTest {
                 .exchange()
                 .expectStatus().isNotFound();
 
-        verify(accountService, times(1)).debit(50000L);
+        verify(accountService, times(1)).debit(1L, 50000L);
     }
 
     @Test
+    @WithMockUser(roles = "PAYMENT")
     void debit_insufficientBalance() {
-        when(accountService.debit(anyLong())).thenReturn(Mono.error(new InsufficientBalanceException()));
+        when(accountService.debit(anyLong(), anyLong())).thenReturn(Mono.error(new InsufficientBalanceException()));
 
         webTestClient.post()
-                .uri("/account/debit")
+                .uri("/account/{accountId}/debit", 1L)
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""
@@ -224,20 +242,21 @@ public class AccountControllerTest {
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.CONFLICT);
 
-        verify(accountService, times(1)).debit(50000L);
+        verify(accountService, times(1)).debit(1L, 50000L);
     }
 
     @ParameterizedTest
     @CsvSource(value = {
             "0", "-100", "null"
     }, nullValues = "null")
+    @WithMockUser(roles = "PAYMENT")
     void debit_notValid(Long amount) {
         var jsonBody = amount == null ? "{}" : """
                 { "amount": %d }
                 """.formatted(amount);
 
         webTestClient.post()
-                .uri("/account/debit")
+                .uri("/account/{accountId}/debit", 1L)
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(jsonBody)
@@ -246,7 +265,7 @@ public class AccountControllerTest {
                 .expectBody()
                 .jsonPath("$.errors").isNotEmpty();
 
-        verify(accountService, never()).debit(anyLong());
+        verify(accountService, never()).debit(anyLong(), anyLong());
     }
 
 }

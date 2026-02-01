@@ -27,11 +27,11 @@
                     <div class="card-header">
                         <a th:text="${'Заказ №'+order.getId()}" th:href="${'/orders/'+order.getId()}"></a>
                     </div>
-                    <ul class="list-group list-group-flush" th:each="item : ${order.getItems()}">
-                        <li class="list-group-item" th:text="${item.getTitle()+' ('+item.getCount()+' шт.) '+(item.getPrice()*item.getCount())+' руб.'}"/>
+                    <ul class="list-group list-group-flush" th:each="orderItem : ${order.getItems()}">
+                        <li class="list-group-item" th:text="${orderItem.getItem().getTitle()+' ('+orderItem.getCount()+' шт.) '+(orderItem.getTotalPrice())+' руб.'}"/>
                     </ul>
                     <div class="card-footer">
-                        <b th:text="${'Сумма: '+order.getTotalSum()}+' руб.'"></b>
+                        <b th:text="${'Сумма: '+order.getTotalPrice()}+' руб.'"></b>
                     </div>
                 </div>
             </div>

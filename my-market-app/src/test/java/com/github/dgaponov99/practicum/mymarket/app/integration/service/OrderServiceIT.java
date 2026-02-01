@@ -1,15 +1,10 @@
 package com.github.dgaponov99.practicum.mymarket.app.integration.service;
 
 import com.github.dgaponov99.practicum.mymarket.app.exception.EmptyCartException;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.CartItem;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Item;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Order;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.OrderItem;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.CartItemRepository;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.ItemRepository;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.OrderItemRepository;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.OrderRepository;
+import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.*;
+import com.github.dgaponov99.practicum.mymarket.app.percistence.repository.*;
 import com.github.dgaponov99.practicum.mymarket.app.service.OrderService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import reactor.test.StepVerifier;
@@ -35,34 +30,41 @@ public class OrderServiceIT extends ServiceIT {
     CartItemRepository cartItemRepository;
     @Autowired
     private OrderItemRepository orderItemRepository;
+    @Autowired
+    private UserRepository userRepository;
+
+    @BeforeEach
+    void setUp() {
+        userRepository.findById(1L).switchIfEmpty(userRepository.save(new User(null, "user", "password", 1L, false))).block();
+    }
 
     @Test
-    void findAll_success() {
+    void findByUserId_success() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
                 .flatMap(createdItem -> {
                     var expectOrder = new Order();
+                    expectOrder.setUserId(1L);
                     expectOrder.setOrderDate(LocalDateTime.now());
                     return orderRepository.save(expectOrder);
                 })
-                .flatMap(createdOrder -> {
-                    return orderItemRepository.save(new OrderItem(createdOrder.getId(), item.getId(), 2));
-                })
+                .flatMap(createdOrder ->
+                        orderItemRepository.save(new OrderItem(createdOrder.getId(), item.getId(), 2, item.getPrice())))
                 .then();
 
-        setupData.thenMany(orderService.findAll())
+        setupData.thenMany(orderService.findByUserId(1L))
                 .collectList()
                 .doOnNext(orders -> assertThat(orders).hasSize(1))
                 .block();
     }
 
     @Test
-    void findAll_empty() {
+    void findByUserId_empty() {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
                 .then();
 
-        setupData.thenMany(orderService.findAll())
+        setupData.thenMany(orderService.findByUserId(1L))
                 .collectList()
                 .doOnNext(orders -> assertThat(orders).isEmpty())
                 .block();
@@ -74,22 +76,22 @@ public class OrderServiceIT extends ServiceIT {
         var setupOrderData = itemRepository.save(item)
                 .flatMap(createdItem -> {
                     var order = new Order();
+                    order.setUserId(1L);
                     order.setOrderDate(LocalDateTime.now());
                     return orderRepository.save(order);
                 })
-                .flatMap(createdOrder -> orderItemRepository.save(new OrderItem(createdOrder.getId(), item.getId(), 2))
+                .flatMap(createdOrder -> orderItemRepository.save(new OrderItem(createdOrder.getId(), item.getId(), 2, item.getPrice()))
                         .thenReturn(createdOrder));
 
-        setupOrderData.flatMap(expectOrder -> {
-            return orderService.findById(expectOrder.getId())
-                    .flatMap(actualOrder -> orderService.getItems(actualOrder.getId())
-                            .collectList()
-                            .doOnNext(actualOrderItems -> assertAll(
-                                    () -> assertEquals(expectOrder.getId(), actualOrder.getId()),
-                                    () -> assertThat(actualOrder.getOrderDate()).isCloseTo(expectOrder.getOrderDate(), within(1, ChronoUnit.MICROS)),
-                                    () -> assertEquals(1, actualOrderItems.size())
-                            )));
-        }).block();
+        setupOrderData.flatMap(expectOrder -> orderService.findById(expectOrder.getId())
+                .flatMap(actualOrder -> orderService.getItems(actualOrder.getId())
+                        .collectList()
+                        .doOnNext(actualOrderItems -> assertAll(
+                                () -> assertEquals(expectOrder.getId(), actualOrder.getId()),
+                                () -> assertEquals(expectOrder.getUserId(), actualOrder.getUserId()),
+                                () -> assertThat(actualOrder.getOrderDate()).isCloseTo(expectOrder.getOrderDate(), within(1, ChronoUnit.MICROS)),
+                                () -> assertEquals(1, actualOrderItems.size())
+                        )))).block();
     }
 
     @Test
@@ -98,10 +100,11 @@ public class OrderServiceIT extends ServiceIT {
         var setupOrderData = itemRepository.save(item)
                 .flatMap(createdItem -> {
                     var order = new Order();
+                    order.setUserId(1L);
                     order.setOrderDate(LocalDateTime.now());
                     return orderRepository.save(order);
                 })
-                .flatMap(createdOrder -> orderItemRepository.save(new OrderItem(createdOrder.getId(), item.getId(), 2))
+                .flatMap(createdOrder -> orderItemRepository.save(new OrderItem(createdOrder.getId(), item.getId(), 2, item.getPrice()))
                         .thenReturn(createdOrder));
 
         setupOrderData.flatMap(order -> orderService.findById(100500L))
@@ -114,12 +117,12 @@ public class OrderServiceIT extends ServiceIT {
         var item = new Item(1L, "Товар", "Описание товара", 10_000, true);
         var setupData = itemRepository.save(item)
                 .flatMap((createdItem) -> {
-                    var cartItem = new CartItem(createdItem.getId(), 2, true);
+                    var cartItem = new CartItem(1L, createdItem.getId(), 2);
                     return cartItemRepository.save(cartItem);
                 })
                 .then();
 
-        setupData.then(orderService.create())
+        setupData.then(orderService.create(1L))
                 .flatMap(actualOrder -> orderService.getItems(actualOrder.getId())
                         .collectList()
                 )
@@ -130,6 +133,7 @@ public class OrderServiceIT extends ServiceIT {
                                 .element(0)
                                 .satisfies(firstOrderItem -> assertThat(firstOrderItem.getItemId()).isEqualTo(item.getId()))
                                 .satisfies(firstOrderItem -> assertThat(firstOrderItem.getCount()).isEqualTo(2))
+                                .satisfies(firstOrderItem -> assertThat(firstOrderItem.getUnitPrice()).isEqualTo(10_000))
                 ))
                 .block();
     }
@@ -140,7 +144,7 @@ public class OrderServiceIT extends ServiceIT {
         var setupData = itemRepository.save(item)
                 .then();
 
-        StepVerifier.create(setupData.then(orderService.create()))
+        StepVerifier.create(setupData.then(orderService.create(1L)))
                 .expectError(EmptyCartException.class)
                 .verify();
     }

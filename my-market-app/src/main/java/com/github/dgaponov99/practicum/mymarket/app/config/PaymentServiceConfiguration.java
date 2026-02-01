@@ -14,8 +14,8 @@ public class PaymentServiceConfiguration {
     private String url;
 
     @Bean
-    AccountApi accountApi(WebClient.Builder webClientBuilder) {
-        return new AccountApi(new ApiClient(webClientBuilder.build()).setBasePath(url));
+    AccountApi accountApi(WebClient webClient) {
+        return new AccountApi(new ApiClient(webClient).setBasePath(url));
     }
 
 }

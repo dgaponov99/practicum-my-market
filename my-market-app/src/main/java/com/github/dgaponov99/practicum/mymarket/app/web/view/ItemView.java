@@ -14,7 +14,6 @@ public class ItemView {
     private String title;
     private String description;
     private long price;
-    private int count;
 
     @JsonIgnore
     public String getImgPath() {

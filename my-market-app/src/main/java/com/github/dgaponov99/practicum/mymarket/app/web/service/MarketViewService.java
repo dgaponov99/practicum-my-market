@@ -8,25 +8,25 @@ import com.github.dgaponov99.practicum.mymarket.app.exception.CartItemNotFoundEx
 import com.github.dgaponov99.practicum.mymarket.app.exception.ItemNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.exception.OrderNotFoundException;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.ItemsSortBy;
-import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Item;
+import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.CartItem;
 import com.github.dgaponov99.practicum.mymarket.app.percistence.entity.Order;
-import com.github.dgaponov99.practicum.mymarket.app.service.CartService;
-import com.github.dgaponov99.practicum.mymarket.app.service.ItemImageService;
-import com.github.dgaponov99.practicum.mymarket.app.service.ItemService;
-import com.github.dgaponov99.practicum.mymarket.app.service.OrderService;
+import com.github.dgaponov99.practicum.mymarket.app.service.*;
 import com.github.dgaponov99.practicum.mymarket.app.web.CartAction;
+import com.github.dgaponov99.practicum.mymarket.app.web.mapper.MarketViewMapper;
 import com.github.dgaponov99.practicum.mymarket.app.web.view.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.security.access.prepost.PostAuthorize;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -37,43 +37,53 @@ public class MarketViewService {
     private final CartService cartService;
     private final OrderService orderService;
     private final ItemImageService itemImageService;
+    private final MarketViewMapper marketViewMapper;
     private final AccountApi accountApi;
     private final ReactiveRedisTemplate<String, Object> redisTemplate;
     private final CacheProperties cacheProperties;
+    private final UserService userService;
 
     public Mono<ItemView> getItem(long id) {
         var cacheKey = "itemView:%d".formatted(id);
         return redisTemplate.opsForValue()
                 .get(cacheKey)
+                .cast(ItemView.class)
                 .doOnNext(v -> log.debug("VALUE: {}", v))
-                .switchIfEmpty(Mono.zip(Mono.defer(() -> itemService.findById(id)),
-                                        Mono.defer(() -> cartService.countByItemId(id))
-                                )
-                                .map(tuple -> toItemView(tuple.getT1(), tuple.getT2()))
-                                .flatMap(value -> redisTemplate.opsForValue()
-                                        .set(cacheKey, value, cacheProperties.getCacheRedisDuration())
-                                        .doOnSuccess(v -> log.debug("REDIS SET OK"))
-                                        .doOnError(e -> log.error("REDIS SET FAIL", e))
-                                        .thenReturn(value)
-                                )
-                )
-                .cast(ItemView.class);
+                .switchIfEmpty(Mono.defer(() -> itemService.findById(id)
+                        .map(marketViewMapper::toItemView)
+                        .flatMap(value -> redisTemplate.opsForValue()
+                                .set(cacheKey, value, cacheProperties.getCacheRedisDuration())
+                                .doOnSuccess(v -> log.debug("REDIS SET OK"))
+                                .doOnError(e -> log.error("REDIS SET FAIL", e))
+                                .thenReturn(value)
+                        ))
+                );
     }
 
     public Flux<DataBuffer> getItemImageResource(long itemId, DataBufferFactory dataBufferFactory) {
         return itemImageService.getImage(itemId, dataBufferFactory);
     }
 
-    public Flux<ItemView> getCartItems() {
-        return cartService.getCartItems()
+    @PreAuthorize("authentication.principal.userId == #userId")
+    public Mono<Map<Long, Integer>> getUserCartItems(long userId) {
+        return cartService.getCartItems(userId)
+                .collectMap(CartItem::getItemId, CartItem::getCount);
+    }
+
+    @PreAuthorize("authentication.principal.userId == #userId")
+    public Mono<CartPageView> getCartPageView(long userId) {
+        return cartService.getCartItems(userId)
                 .flatMap(cartItem ->
                         itemService.findById(cartItem.getItemId())
                                 .switchIfEmpty(Mono.error(new ItemNotFoundException(cartItem.getItemId())))
-                                .map(item -> toItemView(item, cartItem.getCount())));
+                                .map(item -> marketViewMapper.toCartItemView(cartItem, item)))
+                .collectList()
+                .map(cartItemTuples -> marketViewMapper.toCartPageView(userId, cartItemTuples));
     }
 
-    public Mono<EnableBuyView> enableBuy(long cartTotal) {
-        return accountApi.getAccount()
+    @PreAuthorize("authentication.principal.userId == #userId")
+    public Mono<EnableBuyView> enableBuy(long userId, long cartTotal) {
+        return userService.findById(userId).flatMap(user -> accountApi.getAccount(user.getAccountId())
                 .map(AccountDTO::getBalance)
                 .flatMap(currentBalance -> {
                     if (currentBalance >= cartTotal * 100L) {
@@ -83,7 +93,7 @@ public class MarketViewService {
                     }
                 })
                 .onErrorResume(WebClientRequestException.class,
-                        ex -> Mono.just(new EnableBuyView(false, "Невозможно совершить покупку. Сервис платежей временно недоступен.")));
+                        ex -> Mono.just(new EnableBuyView(false, "Невозможно совершить покупку. Сервис платежей временно недоступен."))));
     }
 
     public Mono<ItemsPageView> search(String searchText, int pageNumber, int pageSize, ItemsSortBy sortBy) {
@@ -91,114 +101,66 @@ public class MarketViewService {
         return redisTemplate.opsForValue()
                 .get(cacheKey)
                 .cast(ItemsPageView.class)
-                .switchIfEmpty(itemService.searchCount(searchText).flatMap(totalSearchCount ->
+                .switchIfEmpty(itemService.searchCount(searchText)
+                        .flatMap(totalSearchCount ->
                                 itemService.search(searchText, pageNumber - 1, pageSize, sortBy)
-                                        .flatMap(item -> cartService.countByItemId(item.getId())
-                                                .map(itemCartCount -> toItemView(item, itemCartCount))
-                                        )
                                         .collectList()
-                                        .map(itemViews ->
-                                                new ItemsPageView(itemViews,
-                                                        toPagingView(pageNumber, pageSize, totalSearchCount, itemViews.size())
-                                                )))
+                                        .map(items ->
+                                                marketViewMapper.toItemPageView(items, pageNumber, pageSize, totalSearchCount, items.size()))
+                        )
                         .flatMap(value -> redisTemplate.opsForValue()
                                 .set(cacheKey, value, cacheProperties.getCacheRedisDuration())
                                 .thenReturn(value)
                         ));
     }
 
-    public Mono<OrderView> getOrder(long id) {
+    @PostAuthorize("returnObject?.userId == authentication.principal.userId")
+    public Mono<OrderPageView> getOrder(long id) {
         var cacheKey = "orderView:%d".formatted(id);
         return redisTemplate.opsForValue()
                 .get(cacheKey)
-                .cast(OrderView.class)
+                .cast(OrderPageView.class)
                 .switchIfEmpty(orderService.findById(id)
                         .switchIfEmpty(Mono.error(new OrderNotFoundException(id)))
-                        .flatMap(this::flatMapOrderView)
+                        .flatMap(order -> orderService.getItems(id)
+                                .flatMap(orderItem -> itemService.findById(orderItem.getItemId())
+                                        .map(item -> marketViewMapper.toOrderItemView(orderItem, item))
+                                ).collectList()
+                                .map(orderItemViews -> marketViewMapper.toOrderPageView(order, orderItemViews)))
                         .flatMap(value -> redisTemplate.opsForValue()
                                 .set(cacheKey, value, cacheProperties.getCacheRedisDuration())
                                 .thenReturn(value)
                         ));
     }
 
-    public Flux<OrderView> getOrders() {
-        var cacheKey = "ordersView";
-        return redisTemplate.opsForList()
-                .range(cacheKey, 0, -1)
-                .cast(OrderView.class)
-                .switchIfEmpty(orderService.findAll()
-                        .flatMap(this::flatMapOrderView)
-                        .collectList()
-                        .flatMapMany(values -> {
-                            if (values.isEmpty()) {
-                                return Flux.empty();
-                            }
-                            return redisTemplate.opsForList()
-                                    .rightPushAll(cacheKey, values.toArray())
-                                    .then(redisTemplate.expire(cacheKey, cacheProperties.getCacheRedisDuration()))
-                                    .thenMany(Flux.fromIterable(values));
-                        })
-                );
+    @PreAuthorize("authentication.principal.userId == #userId")
+    public Flux<OrderPageView> getOrders(long userId) {
+        return orderService.findIdsByUserId(userId)
+                .flatMap(this::getOrder);
     }
 
-    public Mono<Void> cartAction(long itemId, CartAction action) {
+    @PreAuthorize("authentication.principal.userId == #userId")
+    public Mono<Void> cartAction(long userId, long itemId, CartAction action) {
         return switch (action) {
-            case PLUS -> cartService.incrementItem(itemId);
-            case MINUS -> cartService.decrementItem(itemId).onErrorComplete(CartItemNotFoundException.class);
+            case PLUS -> cartService.incrementItem(userId, itemId);
+            case MINUS -> cartService.decrementItem(userId, itemId).onErrorComplete(CartItemNotFoundException.class);
         };
     }
 
-    public Mono<Long> buy() {
-        return getCartItems().collectList()
-                .map(this::calculateTotalPrice)
+    @PreAuthorize("authentication.principal.userId == #userId")
+    public Mono<Long> buy(long userId) {
+        return userService.findById(userId).flatMap(user -> getCartPageView(userId)
+                .map(CartPageView::getTotalPrice)
                 .flatMap(total ->
-                        accountApi.debit(new AmountDTO().amount(total * 100))
-                                .then(orderService.create()
+                        accountApi.debit(user.getAccountId(), new AmountDTO().amount(total * 100))
+                                .then(orderService.create(userId)
                                         .map(Order::getId)
                                         .onErrorResume(ex ->
-                                                accountApi.credit(new AmountDTO().amount(total * 100))
+                                                accountApi.credit(user.getAccountId(), new AmountDTO().amount(total * 100))
                                                         .then(Mono.error(ex))
                                         )
                                 )
-                );
-    }
-
-    public long calculateTotalPrice(List<ItemView> itemViews) {
-        return itemViews.stream().mapToLong(itemView -> itemView.getPrice() * itemView.getCount()).sum();
-    }
-
-    private Mono<OrderView> flatMapOrderView(Order order) {
-        return orderService.getItems(order.getId())
-                .flatMap(orderItem -> itemService.findById(orderItem.getItemId())
-                        .map(item -> toItemView(item, orderItem.getCount()))
-                )
-                .collectList()
-                .map(itemViews -> {
-                    var orderView = new OrderView();
-                    orderView.setId(order.getId());
-                    orderView.setItems(itemViews);
-                    orderView.setTotalSum(calculateTotalPrice(itemViews));
-                    return orderView;
-                });
-    }
-
-    private ItemView toItemView(Item item, int count) {
-        var itemView = new ItemView();
-        itemView.setId(item.getId());
-        itemView.setTitle(item.getTitle());
-        itemView.setDescription(item.getDescription());
-        itemView.setPrice(item.getPrice());
-        itemView.setCount(count);
-        return itemView;
-    }
-
-    private PagingView toPagingView(int pageNumber, int pageSize, int totalCount, int contentCount) {
-        var paging = new PagingView();
-        paging.setPageNumber(pageNumber);
-        paging.setPageSize(pageSize);
-        paging.setHasPrevious(pageNumber > 1);
-        paging.setHasNext((pageNumber - 1) * pageSize + contentCount < totalCount);
-        return paging;
+                ));
     }
 
 }

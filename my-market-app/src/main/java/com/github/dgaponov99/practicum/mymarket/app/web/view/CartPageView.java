@@ -6,13 +6,13 @@ import lombok.ToString;
 
 import java.util.List;
 
-@Getter
 @Setter
+@Getter
 @ToString
-public class OrderView {
+public class CartPageView {
 
-    private long id;
-    private List<ItemView> items;
-    private long totalSum;
+    private long userId;
+    private List<CartItemView> cartItems;
+    private long totalPrice;
 
 }

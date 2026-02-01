@@ -1,26 +1,91 @@
 services:
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command: >
+      bash -c "
+      docker-entrypoint.sh postgres &
+      until pg_isready -U postgres -d postgres; do sleep 1; done &&
+      psql -U postgres -d practicum_my_market -c 'CREATE SCHEMA IF NOT EXISTS payment;' &&
+      wait"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d practicum_my_market" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.2-bookworm
+    container_name: redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - keycloakdata:/opt/keycloak/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
   my-market-app:
     build: ./my-market-app
     environment:
       - JAVA_OPTS=-Xms256m -Xmx256m
       - PAYMENT_SERVICE_URL=http://my-market-payment:8081
-      - SPRING_R2DBC_URL=r2dbc:postgresql://host.docker.internal:5432/practicum_my_market
-      - SPRING_LIQUIBASE_URL=jdbc:postgresql://host.docker.internal:5432/practicum_my_market
-      - SPRING.DATA.REDIS.HOST=host.docker.internal
+      - SPRING_R2DBC_URL=r2dbc:postgresql://postgres:5432/practicum_my_market
+      - SPRING_LIQUIBASE_URL=jdbc:postgresql://postgres:5432/practicum_my_market
+      - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_ISSUER-URI=http://keycloak:8180/realms/my-market
+      - SPRING.DATA.REDIS.HOST=redis
+      - SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT-SECRET=<CHANGE_ME>
     ports:
       - "80:80"
     depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       my-market-payment:
         condition: service_started
-    restart: always
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
   my-market-payment:
     build: ./my-market-payment
     environment:
       - JAVA_OPTS=-Xms256m -Xmx256m
-      - SPRING_R2DBC_URL=r2dbc:postgresql://host.docker.internal:5432/practicum_my_market?currentSchema=payment
-      - SPRING_LIQUIBASE_URL=jdbc:postgresql://host.docker.internal:5432/practicum_my_market?currentSchema=payment
-    restart: always
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - SPRING_R2DBC_URL=r2dbc:postgresql://postgres:5432/practicum_my_market?currentSchema=payment
+      - SPRING_LIQUIBASE_URL=jdbc:postgresql://postgres:5432/practicum_my_market?currentSchema=payment
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER-URI=http://keycloak:8180/realms/my-market
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  keycloakdata:

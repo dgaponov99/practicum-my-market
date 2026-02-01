@@ -1,5 +1,6 @@
 package com.github.dgaponov99.practicum.mymarket.app.web.controller;
 
+import com.github.dgaponov99.practicum.mymarket.app.auth.IdentityUserDetails;
 import com.github.dgaponov99.practicum.mymarket.app.config.CacheProperties;
 import com.github.dgaponov99.practicum.mymarket.app.config.MarketViewProperties;
 import com.github.dgaponov99.practicum.mymarket.app.exception.ImageItemNotFoundException;
@@ -14,6 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.security.authentication.AuthenticationTrustResolver;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +31,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.util.Set;
+import java.util.HashSet;
+import java.util.List;
 
 @Controller
 @RequiredArgsConstructor
@@ -37,26 +41,36 @@ public class MarketController {
     private final MarketViewService marketViewService;
     private final MarketViewProperties marketViewProperties;
     private final CacheProperties cacheProperties;
+    private final AuthenticationTrustResolver authenticationTrustResolver;
 
     @GetMapping({"/", "/items"})
     public Mono<Rendering> search(@RequestParam(required = false) String search,
                                   @RequestParam(defaultValue = "NO") ItemsSortBy sort,
                                   @RequestParam(defaultValue = "1") int pageNumber,
-                                  @RequestParam(defaultValue = "5") int pageSize) {
+                                  @RequestParam(defaultValue = "5") int pageSize,
+                                  Authentication authentication) {
         return marketViewService.search(search, pageNumber, pageSize, sort)
                 .map(itemsView -> Rendering.view("items")
                         .modelAttribute("items", ListUtils.partition(itemsView.getItems(), marketViewProperties.getItemsPartitionSize()))
                         .modelAttribute("paging", itemsView.getPaging())
                         .modelAttribute("search", search)
                         .modelAttribute("sort", sort)
-                        .build()
-                );
+                ).flatMap(renderingBuilder -> {
+                    if (!authenticationTrustResolver.isAnonymous(authentication)) {
+                        return marketViewService.getUserCartItems(((IdentityUserDetails) authentication.getPrincipal()).getUserId())
+                                .map(userCartItems -> renderingBuilder.modelAttribute("userCartItems", userCartItems));
+                    } else {
+                        return Mono.just(renderingBuilder);
+                    }
+                })
+                .map(Rendering.Builder::build);
     }
 
     @PostMapping("/items")
-    public Mono<Rendering> itemCartAction(ServerWebExchange exchange) {
+    public Mono<Rendering> itemCartAction(ServerWebExchange exchange, Authentication authentication) {
         return exchange.getFormData()
                 .flatMap(formData -> marketViewService.cartAction(
+                                ((IdentityUserDetails) authentication.getPrincipal()).getUserId(),
                                 Long.parseLong(formData.getFirst("id")),
                                 CartAction.valueOf(formData.getFirst("action"))
                         )
@@ -64,43 +78,51 @@ public class MarketController {
     }
 
     @GetMapping("/items/{id}")
-    public Mono<Rendering> item(@PathVariable long id) {
+    public Mono<Rendering> item(@PathVariable long id, Authentication authentication) {
         return marketViewService.getItem(id)
                 .map(item -> Rendering.view("item")
                         .modelAttribute("item", item)
-                        .build()
-                );
+                ).flatMap(renderingBuilder -> {
+                    if (!authenticationTrustResolver.isAnonymous(authentication)) {
+                        return marketViewService.getUserCartItems(((IdentityUserDetails) authentication.getPrincipal()).getUserId())
+                                .map(userCartItems -> renderingBuilder.modelAttribute("userCartItems", userCartItems));
+                    } else {
+                        return Mono.just(renderingBuilder);
+                    }
+                })
+                .map(Rendering.Builder::build);
     }
 
     @PostMapping("/items/{id}")
     public Mono<String> item(@PathVariable long id,
-                             ServerWebExchange exchange) {
+                             ServerWebExchange exchange,
+                             Authentication authentication) {
         return exchange.getFormData()
-                .flatMap(formData -> marketViewService.cartAction(id,
+                .flatMap(formData -> marketViewService.cartAction(
+                                ((IdentityUserDetails) authentication.getPrincipal()).getUserId(),
+                                id,
                                 CartAction.valueOf(formData.getFirst("action")))
                         .thenReturn("redirect:/items/%d".formatted(id)));
     }
 
     @GetMapping("/cart/items")
-    public Mono<Rendering> cart() {
-        return marketViewService.getCartItems()
-                .collectList()
-                .flatMap(items -> {
-                    var total = marketViewService.calculateTotalPrice(items);
-                    return marketViewService.enableBuy(total)
-                            .map(enableBuyView ->
-                                    Rendering.view("cart")
-                                            .modelAttribute("items", items)
-                                            .modelAttribute("total", total)
-                                            .modelAttribute("enableBuy", enableBuyView)
-                                            .build());
-                });
+    public Mono<Rendering> cart(Authentication authentication) {
+        var userId = ((IdentityUserDetails) authentication.getPrincipal()).getUserId();
+        return marketViewService.getCartPageView(userId)
+                .flatMap(cartPageView -> marketViewService.enableBuy(userId, cartPageView.getTotalPrice())
+                        .map(enableBuyView ->
+                                Rendering.view("cart")
+                                        .modelAttribute("items", cartPageView.getCartItems())
+                                        .modelAttribute("total", cartPageView.getTotalPrice())
+                                        .modelAttribute("enableBuy", enableBuyView)
+                                        .build()));
     }
 
     @PostMapping("/cart/items")
-    public Mono<String> cartAction(ServerWebExchange exchange) {
+    public Mono<String> cartAction(ServerWebExchange exchange, Authentication authentication) {
         return exchange.getFormData()
                 .flatMap(formData -> marketViewService.cartAction(
+                                ((IdentityUserDetails) authentication.getPrincipal()).getUserId(),
                                 Long.parseLong(formData.getFirst("id")),
                                 CartAction.valueOf(formData.getFirst("action"))
                         )
@@ -108,9 +130,10 @@ public class MarketController {
     }
 
     @GetMapping("/orders")
-    public Mono<Rendering> orders() {
+    public Mono<Rendering> orders(Authentication authentication) {
+        var userId = ((IdentityUserDetails) authentication.getPrincipal()).getUserId();
         return Mono.just(Rendering.view("orders")
-                .modelAttribute("orders", marketViewService.getOrders())
+                .modelAttribute("orders", marketViewService.getOrders(userId))
                 .build());
     }
 
@@ -126,8 +149,9 @@ public class MarketController {
     }
 
     @PostMapping("/buy")
-    public Mono<String> buy() {
-        return marketViewService.buy().map("redirect:/orders/%d?newOrder=true"::formatted);
+    public Mono<String> buy(Authentication authentication) {
+        return marketViewService.buy(((IdentityUserDetails) authentication.getPrincipal()).getUserId())
+                .map("redirect:/orders/%d?newOrder=true"::formatted);
     }
 
     @GetMapping(value = "/images/{id}", produces = MediaType.IMAGE_PNG_VALUE)
@@ -144,7 +168,8 @@ public class MarketController {
     }
 
     private Rendering redirect(String redirectUrl, MultiValueMap<String, String> queryParams, MultiValueMap<String, String> formData, String... excludeParams) {
-        var excludeParamsSet = Set.of(excludeParams);
+        var excludeParamsSet = new HashSet<>(List.of(excludeParams));
+        excludeParamsSet.add("_csrf");
 
         var uriBuilder = UriComponentsBuilder.fromUriString(redirectUrl);
         queryParams.forEach((key, value) -> {
